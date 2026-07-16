@@ -1,10 +1,14 @@
 from config import get_config
+import shutil
 from openai import OpenAI
 from agent import Agent
 from persona import load_persona, list_personas
 persona = load_persona("default")  #以后可以外挂到env
 config = get_config()
 client = OpenAI(api_key=config["API_KEY"], base_url=config["Base_URL"])
+def print_separator():
+    width = shutil.get_terminal_size().columns
+    print("─" * width)
 def handle_command(cmd):
     """解析命令并执行相应操作"""
     parts = cmd.split()
@@ -34,14 +38,28 @@ def handle_command(cmd):
         elif parts[1] == "current":
             print(f"当前人格: {persona['name']}")
             print(f"描述: {persona['description']}")
+    elif action == "debug":
+        if len(parts) == 1:
+            print("使用context查看上次LLM发送")
+        elif parts[1] == "context":
+          if agent.last_messages is None:
+              print("没有上次的消息记录。")
+              return
+          else:
+            for i, msg in enumerate(agent.last_messages):
+                role = msg["role"]
+                preview = str(msg["content"])[:80]
+                tokens = len(str(msg["content"])) // 4
+                print(f"[{i}] {role}: {tokens}t | {preview}...")
+            print(f"总计: {sum(len(str(m['content']))//4 for m in agent.last_messages)} tokens")
 if __name__ == "__main__":
     agent = Agent(client, config, persona)
     while True:
-        cin = input(">")
+        print_separator()
+        cin = input("> ")
         if cin.startswith("/"):
             result = handle_command(cin)   # 命令单独处理
             if result == "exit":
                 break
             continue
-
         agent.chat(cin)
