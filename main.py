@@ -3,6 +3,7 @@ import shutil , os
 from openai import OpenAI
 from agent import Agent , MAX_TOKENS
 from persona import load_persona, list_personas
+from config import switch_provider , list_providers
 persona = load_persona("default")  #以后可以外挂到env
 config = get_config()
 client = OpenAI(api_key=config["API_KEY"], base_url=config["Base_URL"])
@@ -16,6 +17,7 @@ COMMAND_DESCRIPTIONS = {
       "debug":   "调试工具 (context)",
       "help":    "显示此帮助",
       "status":  "显示当前会话状态",
+      "model":   "切换模型提供商 (list/<provider>)",
 }
 def handle_command(cmd):
     """解析命令并执行相应操作"""
@@ -27,6 +29,7 @@ def handle_command(cmd):
         "debug":  lambda:handle_debug_command(parts),
         "help":  lambda:handle_help_command(), 
         "status": lambda:handle_status_command(),
+        "model": lambda:handle_model_command(parts),
     }
     if action in command_handlers:
         return command_handlers[action]()
@@ -76,11 +79,40 @@ def handle_help_command():
         print(f"  /{cmd_name}  {desc}")    
 def handle_status_command():
     print(f"当前人格: {agent.persona['name']}")
+    print(f"当前provider: {agent.config['provider_name']}")
     print(f"模型： {agent.config['Model']}")
     context_tokens = sum(len(str(m.get("content", ""))) // 4 for m in agent.history)
     print(f"{context_tokens} / {MAX_TOKENS} max tokens")
     print(f"历史消息: {len(agent.history)} 条")
     print(f"当前工作目录: {os.getcwd()}")
+
+def handle_model_command(parts):
+    if len(parts) < 2:
+        print("输入 /model <provider> 来切换模型提供商，输入 /model list 查看可用模型")
+        return
+    elif parts[1] == "list":
+        print(f"当前provider: {agent.config['provider_name']}")
+        print(f"当前模型： {agent.config['Model']}")
+        providers = list_providers()
+        print("可用的模型提供商:")
+        for name, info in providers.items():
+            print(f"- {name}: {info['default_model']}")
+    else:
+        provider = parts[1]
+        try:
+            new_config = switch_provider(provider)
+        except KeyError:
+            print(f"提供商 {provider} 不存在，请输入/model list 查看可用提供商")
+            return
+        except ValueError as e:
+            print(e)
+            return
+        agent.client = OpenAI(api_key=new_config["API_KEY"], base_url=new_config["Base_URL"])
+        agent.config = new_config
+        print(f"已切换到模型: {new_config['Model']} (提供者: {new_config['provider_name']})")
+
+    
+    
 if __name__ == "__main__":
     agent = Agent(client, config, persona)
     while True:

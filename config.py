@@ -14,7 +14,24 @@ Model    = provider["default_model"]
 
 def get_config():
     return{"API_KEY": API_KEY, "Base_URL": Base_URL, "Model": Model,"provider_name": default,}
-
+def list_providers():
+    with open("config.yaml", "r", encoding="utf-8") as f:
+        return yaml.safe_load(f)["providers"]
+def switch_provider(name):
+    with open("config.yaml", "r", encoding="utf-8") as f:
+        providers = yaml.safe_load(f)["providers"]
+    if name not in providers:
+          raise KeyError(name)
+    info = providers[name]
+    api_key = os.getenv(info["api_key_env"])
+    if not api_key:
+        raise ValueError(f"请在 .env 中设置 {info['api_key_env']}")
+    return {
+          "API_KEY": api_key,
+          "Base_URL": info["base_url"],
+          "Model": info["default_model"],
+          "provider_name": name,
+      }
 if __name__ == "__main__":
     config = get_config()
     print(config)
