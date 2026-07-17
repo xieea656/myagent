@@ -1,5 +1,6 @@
 from config import get_config
 from openai import OpenAI
+from system_prompt import SYSTEM_PROMPT
 import datetime, os, platform , json
 MOCK = True
 MAX_TOKENS = 8000
@@ -26,17 +27,22 @@ class Agent:
             ]
             return
         message=[
+                {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "system", "content": self.persona["system_prompt"]},
                 *self.history,
-                {"role": "system", "content": self.get_env_info()}
+                {"role": "system", "content": self.get_env_info()},
             ]
         message.append({"role": "user", "content": cin})
         while self.estimate_tokens(message) > MAX_TOKENS and len(self.history) > 0: #token超额判断
             self.history.pop(0)
             if self.history and self.history[0]["role"] != "user":
                 self.history.pop(0)
-            message = [{"role": "system", "content": self.persona["system_prompt"]}, *self.history
-                       ,{"role": "system", "content": self.get_env_info()}]
+            message = [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": self.persona["system_prompt"]},
+                *self.history,
+                {"role": "system", "content": self.get_env_info()},
+                ]
             message.append({"role": "user", "content": cin})
         used = self.estimate_tokens(message)
         response = self.client.chat.completions.create(
