@@ -18,6 +18,9 @@ COMMAND_DESCRIPTIONS = {
       "help":    "显示此帮助",
       "status":  "显示当前会话状态",
       "model":   "切换模型提供商 (list/<provider>)",
+      "clear":   "清除历史消息，开始新会话",
+      "resume":  "恢复历史会话 (不带参数列出可恢复的会话)",
+
 }
 def handle_command(cmd):
     """解析命令并执行相应操作"""
@@ -30,6 +33,8 @@ def handle_command(cmd):
         "help":  lambda:handle_help_command(), 
         "status": lambda:handle_status_command(),
         "model": lambda:handle_model_command(parts),
+        "clear": lambda:handle_clear_command(),
+        "resume": lambda:handle_resume_command(parts),
     }
     if action in command_handlers:
         return command_handlers[action]()
@@ -111,8 +116,22 @@ def handle_model_command(parts):
         agent.config = new_config
         print(f"已切换到模型: {new_config['Model']} (提供者: {new_config['provider_name']})")
 
+def handle_clear_command():
+    agent.new_session()
+    print("已清除历史消息，开始新会话。")
     
-    
+def handle_resume_command(parts):
+    if len(parts) < 2:
+        for fname in os.listdir("sessions"):
+            if fname.endswith(".jsonl"):
+                print(f"- {fname[:-6]}")
+        return
+    session_name = parts[1]
+    try:
+        agent.load_session(session_name)
+        print(f"已恢复会话: {session_name} ({len(agent.history)} 条消息)")
+    except FileNotFoundError:
+        print(f"会话文件 sessions/{session_name}.jsonl 不存在。")
 if __name__ == "__main__":
     agent = Agent(client, config, persona)
     while True:
