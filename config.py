@@ -1,6 +1,6 @@
 import os ,yaml
 from dotenv import load_dotenv
-
+_NON_CHAT = ("asr", "tts", "voice", "embedding", "whisper")
 load_dotenv()
 with open("config.yaml", "r", encoding="utf-8") as f:
      yaml_config = yaml.safe_load(f)
@@ -32,6 +32,24 @@ def switch_provider(name):
           "Model": info["default_model"],
           "provider_name": name,
       }
+def switch_model(model_name, current_config):
+    new = dict(current_config)
+    new["Model"] = model_name
+    return new
+def list_available_models(client):
+    try:
+        resp = client.models.list()
+    except Exception:          
+        return None
+    ids = []                   
+    for m in resp.data:        
+        low = m.id.lower()
+        if any(x in low for x in _NON_CHAT):   
+            continue
+        ids.append(m.id)       
+    return sorted(ids)
+
+            
 if __name__ == "__main__":
     config = get_config()
     print(config)

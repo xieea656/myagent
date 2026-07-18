@@ -3,7 +3,7 @@ import shutil , os
 from openai import OpenAI
 from agent import Agent , MAX_TOKENS
 from persona import load_persona, list_personas
-from config import switch_provider , list_providers
+from config import switch_provider , list_providers ,  switch_model , list_available_models
 import tools
 persona = load_persona("default")  #以后可以外挂到env
 config = get_config()
@@ -18,11 +18,11 @@ COMMAND_DESCRIPTIONS = {
         "debug":   "调试工具 (context)",
         "help":    "显示此帮助",
         "status":  "显示当前会话状态",
-        "model":   "切换模型提供商 (list/<provider>)",
+        "model":   "切换模型 (list/<name>)",
         "clear":   "清除历史消息，开始新会话",
         "resume":  "恢复历史会话 (不带参数列出可恢复的会话)",
         "tools" :  "列出可用工具",
-
+        "provider" : "切换提供商 (list/<name>)"
 }
 def handle_command(cmd):
     """解析命令并执行相应操作"""
@@ -38,6 +38,7 @@ def handle_command(cmd):
         "clear": lambda:handle_clear_command(),
         "resume": lambda:handle_resume_command(parts),
         "tools": lambda:handle_tools_command(),
+        "provider":lambda:handle_provider_command(parts)
     }
     if action in command_handlers:
         return command_handlers[action]()
@@ -96,9 +97,9 @@ def handle_status_command():
     print(f"历史消息: {len(agent.history)} 条")
     print(f"当前工作目录: {os.getcwd()}")
 
-def handle_model_command(parts):
+def handle_provider_command(parts):
     if len(parts) < 2:
-        print("输入 /model <provider> 来切换模型提供商，输入 /model list 查看可用模型")
+        print("输入 /provider <provider> 来切换模型提供商，输入 /provider list 查看可用提供商")
         return
     elif parts[1] == "list":
         print(f"当前provider: {agent.config['provider_name']}")
@@ -112,7 +113,7 @@ def handle_model_command(parts):
         try:
             new_config = switch_provider(provider)
         except KeyError:
-            print(f"提供商 {provider} 不存在，请输入/model list 查看可用提供商")
+            print(f"提供商 {provider} 不存在，请输入/provider list 查看可用提供商")
             return
         except ValueError as e:
             print(e)
@@ -137,6 +138,21 @@ def handle_resume_command(parts):
         print(f"已恢复会话: {session_name} ({len(agent.history)} 条消息)")
     except FileNotFoundError:
         print(f"会话文件 sessions/{session_name}.jsonl 不存在。")
+
+def handle_model_command(parts) :
+    if len(parts) < 2 or parts[1] == "list":
+        ids = list_available_models(agent.client)
+        if ids is None:
+            print(" 该 provider 不支持 /model,请直接 /model <name>")
+            return
+        for m in ids:
+            print(f"- {m}")
+        return
+    name = parts[1]
+    agent.config = switch_model(name, agent.config)
+    print(f"已切换模型: {name} (provider: {agent.config['provider_name']})")
+
+    
 if __name__ == "__main__":
     agent = Agent(client, config, persona)
     while True:
