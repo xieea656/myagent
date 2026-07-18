@@ -4,6 +4,7 @@ from openai import OpenAI
 from agent import Agent , MAX_TOKENS
 from persona import load_persona, list_personas
 from config import switch_provider , list_providers
+import tools
 persona = load_persona("default")  #以后可以外挂到env
 config = get_config()
 client = OpenAI(api_key=config["API_KEY"], base_url=config["Base_URL"])
@@ -12,14 +13,15 @@ def print_separator():
     print("─" * width)
 
 COMMAND_DESCRIPTIONS = {
-      "exit":    "退出程序",
-      "persona": "人格管理 (list/switch/current)",
-      "debug":   "调试工具 (context)",
-      "help":    "显示此帮助",
-      "status":  "显示当前会话状态",
-      "model":   "切换模型提供商 (list/<provider>)",
-      "clear":   "清除历史消息，开始新会话",
-      "resume":  "恢复历史会话 (不带参数列出可恢复的会话)",
+        "exit":    "退出程序",
+        "persona": "人格管理 (list/switch/current)",
+        "debug":   "调试工具 (context)",
+        "help":    "显示此帮助",
+        "status":  "显示当前会话状态",
+        "model":   "切换模型提供商 (list/<provider>)",
+        "clear":   "清除历史消息，开始新会话",
+        "resume":  "恢复历史会话 (不带参数列出可恢复的会话)",
+        "tools" :  "列出可用工具",
 
 }
 def handle_command(cmd):
@@ -35,6 +37,7 @@ def handle_command(cmd):
         "model": lambda:handle_model_command(parts),
         "clear": lambda:handle_clear_command(),
         "resume": lambda:handle_resume_command(parts),
+        "tools": lambda:handle_tools_command(),
     }
     if action in command_handlers:
         return command_handlers[action]()
@@ -82,6 +85,8 @@ def handle_debug_command(parts):
 def handle_help_command():
     for cmd_name, desc in COMMAND_DESCRIPTIONS.items():
         print(f"  /{cmd_name}  {desc}")    
+def handle_tools_command():
+    print(tools.show_tools())
 def handle_status_command():
     print(f"当前人格: {agent.persona['name']}")
     print(f"当前provider: {agent.config['provider_name']}")
@@ -146,4 +151,5 @@ if __name__ == "__main__":
             agent.chat(cin)
         except KeyboardInterrupt:
             print("\n已中断任务，输入 /exit 退出程序")
+
             

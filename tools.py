@@ -67,6 +67,15 @@ def call_tool(tool_call):
     raw  = tool_call.function.arguments
     args = json.loads(raw)
     return dispatch_tool(name, args)
+def call_tool_dict(call) -> str :
+    """流式累积出的 tool_call(dict) -> 执行。适配 _stream_completion 返回格式。"""
+    name = call["function"]["name"]
+    raw = call["function"]["arguments"] or "{}"
+    try:
+          args = json.loads(raw)                 # ← 字符串 -> dict
+    except json.JSONDecodeError as e:
+          return f"Error: invalid JSON for '{name}': {e}"
+    return dispatch_tool(name, args)
 def dispatch_tool(name,args):
     handler = TOOL_HANDLERS.get(name)
     if not handler :
