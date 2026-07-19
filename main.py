@@ -1,5 +1,5 @@
 from config import get_config
-import os
+import os ,readline
 from openai import OpenAI 
 from agent import Agent , MAX_TOKENS
 from persona import load_persona, list_personas
@@ -205,5 +205,4 @@ if __name__ == "__main__":
         except KeyboardInterrupt:
             console.print("\n已中断任务，输入 /exit 退出程序")
         except EOFError:
-            console.print("\n输入结束（Ctrl+D），输入 /exit 退出程序")
             break
