@@ -17,14 +17,13 @@ class Agent:
         self.last_messages = None
         self._new_session_file()
         self.tools_enabled = True
-    def chat(self, cin, live=None):
-        out = live.console if live else console
+    def chat(self, cin):
         
         if MOCK:
             mock_text = "你好！这是一个模拟回复。"
             for char in mock_text:
-                out.print(char, end="", flush=True)
-            out.print()
+                console.print(char, end="")
+            console.print()
             self.last_messages = [                   
                 {"role": "system", "content": self.persona["system_prompt"]},
                 {"role": "user", "content": cin},
@@ -41,7 +40,7 @@ class Agent:
             self.last_messages = messages
             used = self.estimate_tokens(messages)
             r = self._stream_completion(messages, self._active_tools())
-            out.print(f"[step {step+1} | {used} tokens]")
+            console.print(f"[step {step+1} | {used} tokens]")
             last_content = r["content"]
             asst = {"role": "assistant", "content": r["content"] or None}
             if r["tool_calls"]:
@@ -55,7 +54,7 @@ class Agent:
                 tool_msg = {"role":"tool", "tool_call_id": call["id"],"content": result}
                 self.history.append(tool_msg)
                 self._append_jsonl(tool_msg)
-        out.print(f"\n[!] 达到最大迭代次数 {MAX_ITER},回答可能不完整。")
+        console.print(f"\n[!] 达到最大迭代次数 {MAX_ITER},回答可能不完整。")
         return last_content
 
     def estimate_tokens(self, messages):
@@ -84,8 +83,7 @@ class Agent:
         with open(path, "r", encoding="utf-8") as f:
             self.history = [json.loads(line) for line in f if line.strip()]
             self.session_file = path
-    def _stream_completion(self,messages,tools=None,live=None):
-        out = live.console if live else console
+    def _stream_completion(self,messages,tools=None):
         """构造 assistant 消息"""
         kwargs = dict(model = self.config["Model"],messages=messages,stream=True)
         if tools:
@@ -99,9 +97,9 @@ class Agent:
                 continue
             delta = chunk.choices[0].delta
             if getattr(delta, "reasoning_content", None):
-                out.print(delta.reasoning_content, end="", flush=True)
+                console.print(delta.reasoning_content, end="")
             if delta.content:
-                out.print(delta.content, end="", flush=True)
+                console.print(delta.content, end="")
                 content += delta.content
             for tc in (getattr(delta, "tool_calls", None) or []):
                 slot = tc_acc.setdefault(tc.index, {"id":"", "name":"", "arguments":""})
@@ -109,7 +107,7 @@ class Agent:
                 if tc.function:
                     if tc.function.name: slot["name"] = tc.function.name
                     if tc.function.arguments: slot["arguments"] += tc.function.arguments
-        out.print()
+        console.print()
         tool_calls = None
         if tc_acc:
             tool_calls = [
