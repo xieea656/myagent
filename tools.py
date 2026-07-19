@@ -1,7 +1,9 @@
 """agent的工具列表与函数集"""
+from rich.console import Console
 import os , json , subprocess
 MAX_OUTPUT_CHARS = 10000
 BASH_TIMEOUT = 30
+console = Console()
 def read_file(path: str, max_chars: int = MAX_OUTPUT_CHARS) -> str:
     """读文件工具"""
     if os.path.isdir(path):
@@ -28,7 +30,7 @@ def read_file(path: str, max_chars: int = MAX_OUTPUT_CHARS) -> str:
     return text
 def run_bash(command: str, timeout: int = BASH_TIMEOUT, max_chars: int = MAX_OUTPUT_CHARS) -> str:
     """bash工具"""
-    print(f"\n[tool: run_bash] pending command:\n  $ {command}")
+    console.print(f"\n[tool: run_bash] pending command:\n  $ {command}")
     try:
         answer = input(" 是否允许执行? [y/N]: ").strip().lower()
     except (EOFError, KeyboardInterrupt):     # 非交互 -> 拒绝

@@ -10,14 +10,6 @@ from rich.rule import Rule
 from rich.panel import Panel
 from rich.live import Live
 console = Console()
-_live = None
-
-def _p(*args, **kwargs):
-    """Print through Live if available, otherwise through console."""
-    if _live is not None:
-        _live.console.print(*args, **kwargs)
-    else:
-        console.print(*args, **kwargs)
 persona = load_persona("default")  #以后可以外挂到env
 config = get_config()
 client = OpenAI(api_key=config["API_KEY"], base_url=config["Base_URL"])
@@ -60,117 +52,117 @@ def handle_command(cmd):
 
 def handle_persona_command(parts):
     if len(parts) == 1:
-        _p("使用list列出人格列表，使用switch <name>切换人格，使用current查看当前人格信息")
+        console.print("使用list列出人格列表，使用switch <name>切换人格，使用current查看当前人格信息")
     elif parts[1] == "list":
             personas = list_personas()
-            _p("可用的人格列表:")
+            console.print("可用的人格列表:")
             for p in personas:
-                _p(f"- {p}")
+                console.print(f"- {p}")
     elif parts[1] == "switch":
         if len(parts) < 3:
-            _p("请指定要切换的人格名称")
+            console.print("请指定要切换的人格名称")
             return
         new_persona_name = parts[2]
         try:
             global persona
             persona = load_persona(new_persona_name)
             agent.persona = persona
-            _p(f"已切换到人格: {new_persona_name}")
+            console.print(f"已切换到人格: {new_persona_name}")
         except FileNotFoundError as e:
-            _p(e)
+            console.print(e)
     elif parts[1] == "current":
-            _p(f"当前人格: {persona['name']}")
-            _p(f"描述: {persona['description']}")
+            console.print(f"当前人格: {persona['name']}")
+            console.print(f"描述: {persona['description']}")
 def handle_debug_command(parts):
     action = parts[1] if len(parts) > 1 else None
     if action == None:
         if len(parts) == 1:
-            _p("使用context查看上次LLM发送")
+            console.print("使用context查看上次LLM发送")
     elif parts[1] == "context":
           if agent.last_messages is None:
-              _p("没有上次的消息记录。")
+              console.print("没有上次的消息记录。")
               return
           else:
             for i, msg in enumerate(agent.last_messages):
                 role = msg["role"]
                 preview = str(msg["content"])[:80]
                 tokens = len(str(msg["content"])) // 4
-                _p(f"[{i}] {role}: {tokens}t | {preview}...")
-            _p(f"总计: {sum(len(str(m['content']))//4 for m in agent.last_messages)} tokens")
+                console.print(f"[{i}] {role}: {tokens}t | {preview}...")
+            console.print(f"总计: {sum(len(str(m['content']))//4 for m in agent.last_messages)} tokens")
 def handle_help_command():
     for cmd_name, desc in COMMAND_DESCRIPTIONS.items():
-        _p(f"  /{cmd_name}  {desc}")    
+        console.print(f"  /{cmd_name}  {desc}")    
 def handle_tools_command():
-    _p(tools.show_tools())
+    console.print(tools.show_tools())
 def handle_status_command():
-    _p(f"当前人格: {agent.persona['name']}")
-    _p(f"当前provider: {agent.config['provider_name']}")
-    _p(f"模型： {agent.config['Model']}")
+    console.print(f"当前人格: {agent.persona['name']}")
+    console.print(f"当前provider: {agent.config['provider_name']}")
+    console.print(f"模型： {agent.config['Model']}")
     context_tokens = sum(len(str(m.get("content", ""))) // 4 for m in agent.history)
-    _p(f"{context_tokens} / {MAX_TOKENS} max tokens")
-    _p(f"历史消息: {len(agent.history)} 条")
-    _p(f"当前工作目录: {os.getcwd()}")
+    console.print(f"{context_tokens} / {MAX_TOKENS} max tokens")
+    console.print(f"历史消息: {len(agent.history)} 条")
+    console.print(f"当前工作目录: {os.getcwd()}")
 
 def handle_provider_command(parts):
     if len(parts) < 2:
-        _p("输入 /provider <provider> 来切换模型提供商，输入 /provider list 查看可用提供商")
+        console.print("输入 /provider <provider> 来切换模型提供商，输入 /provider list 查看可用提供商")
         return
     elif parts[1] == "list":
-        _p(f"当前provider: {agent.config['provider_name']}")
-        _p(f"当前模型： {agent.config['Model']}")
+        console.print(f"当前provider: {agent.config['provider_name']}")
+        console.print(f"当前模型： {agent.config['Model']}")
         providers = list_providers()
-        _p("可用的模型提供商:")
+        console.print("可用的模型提供商:")
         for name, info in providers.items():
-            _p(f"- {name}: {info['default_model']}")
+            console.print(f"- {name}: {info['default_model']}")
     else:
         provider = parts[1]
         try:
             new_config = switch_provider(provider)
         except KeyError:
-            _p(f"提供商 {provider} 不存在，请输入/provider list 查看可用提供商")
+            console.print(f"提供商 {provider} 不存在，请输入/provider list 查看可用提供商")
             return
         except ValueError as e:
-            _p(e)
+            console.print(e)
             return
         agent.client = OpenAI(api_key=new_config["API_KEY"], base_url=new_config["Base_URL"])
         agent.config = new_config
-        _p(f"已切换到模型: {new_config['Model']} (提供者: {new_config['provider_name']})")
+        console.print(f"已切换到模型: {new_config['Model']} (提供者: {new_config['provider_name']})")
 
 def handle_clear_command():
     agent.new_session()
-    _p("已清除历史消息，开始新会话。")
+    console.print("已清除历史消息，开始新会话。")
     
 def handle_resume_command(parts):
     if len(parts) < 2:
         for fname in os.listdir("sessions"):
             if fname.endswith(".jsonl"):
-                _p(f"- {fname[:-6]}")
+                console.print(f"- {fname[:-6]}")
         return
     session_name = parts[1]
     try:
         agent.load_session(session_name)
-        _p(f"已恢复会话: {session_name} ({len(agent.history)} 条消息)")
+        console.print(f"已恢复会话: {session_name} ({len(agent.history)} 条消息)")
     except FileNotFoundError:
-        _p(f"会话文件 sessions/{session_name}.jsonl 不存在。")
+        console.print(f"会话文件 sessions/{session_name}.jsonl 不存在。")
 
 def handle_model_command(parts) :
     if len(parts) < 2 or parts[1] == "list":
         ids = list_available_models(agent.client)
         if ids is None:
-            _p(" 该 provider 不支持 /model,请直接 /model <name>")
+            console.print(" 该 provider 不支持 /model,请直接 /model <name>")
             return
         for m in ids:
-            _p(f"- {m}")
+            console.print(f"- {m}")
         return
     name = parts[1]
     agent.config = switch_model(name, agent.config)
-    _p(f"已切换模型: {name} (provider: {agent.config['provider_name']})")
+    console.print(f"已切换模型: {name} (provider: {agent.config['provider_name']})")
 def handle_notools_command(parts):
     if len(parts) < 2 or parts[1] == "status":
-        _p(f"工具调用: {'开启' if agent.tools_enabled else '关闭'}  (/notools on|off)")
+        console.print(f"工具调用: {'开启' if agent.tools_enabled else '关闭'}  (/notools on|off)")
         return
     agent.tools_enabled = (parts[1] == "on")
-    _p(f"工具调用已{'开启' if agent.tools_enabled else '关闭'}")
+    console.print(f"工具调用已{'开启' if agent.tools_enabled else '关闭'}")
 
 def make_status():
       used = agent.estimate_tokens(agent.history)
@@ -185,8 +177,7 @@ def make_status():
 if __name__ == "__main__":
       agent = Agent(client, config, persona)
       with Live(make_status(), console=console, screen=True, refresh_per_second=4) as live:
-            global  _live; _live = live
-            while True:
+          while True:
                 try:
                     live.update(make_status())      
                     cin = live.console.input("> ")  

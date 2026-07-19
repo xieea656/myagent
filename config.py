@@ -1,7 +1,9 @@
 import os ,yaml
 from dotenv import load_dotenv
+from rich.console import Console
 _NON_CHAT = ("asr", "tts", "voice", "embedding", "whisper")
 load_dotenv()
+console = Console()
 with open("config.yaml", "r", encoding="utf-8") as f:
      yaml_config = yaml.safe_load(f)
 default = yaml_config["default_provider"]          
@@ -52,4 +54,4 @@ def list_available_models(client):
             
 if __name__ == "__main__":
     config = get_config()
-    print(config)
+    console.print(config)
