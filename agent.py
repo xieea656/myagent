@@ -1,8 +1,8 @@
 from config import get_config
 from openai import OpenAI
-from system_prompt import SYSTEM_PROMPT
+from system_prompt import SYSTEM_PROMPT ,PLAN_PROMPT
 import datetime, os, platform , json
-from tools import TOOL_SPECS, call_tool_dict
+from tools import TOOL_SPECS, call_tool_dict,LOW_TOOL_SPECS ,TOOL_HANDLERS
 from rich.console import Console
 console = Console()
 MOCK = False
@@ -17,6 +17,7 @@ class Agent:
         self.last_messages = None
         self._new_session_file()
         self.tools_enabled = True
+        self.plan_mode = False
     def chat(self, cin):
         
         if MOCK:
@@ -50,6 +51,9 @@ class Agent:
             if not r["tool_calls"]:
                 return last_content
             for call in r["tool_calls"]:
+                if call["function"]["name"] == "enter_plan_mode":
+                    self.plan_mode = True         
+                    continue
                 result = call_tool_dict(call)
                 tool_msg = {"role":"tool", "tool_call_id": call["id"],"content": result}
                 self.history.append(tool_msg)
@@ -123,14 +127,18 @@ class Agent:
                 *self.history,
                 {"role": "system", "content": self.get_env_info()},
             ]
+        if self.plan_mode:
+            messages.insert(2, {"role": "system", "content": PLAN_PROMPT})
         return messages
     def  _append_jsonl(self, obj):
         with open(self.session_file, "a", encoding="utf-8") as f:
             f.write(json.dumps(obj, ensure_ascii=False) + "\n") 
     def _active_tools(self):
         if not self.tools_enabled:
-            return None
-        return TOOL_SPECS
+            return None                  
+        if self.plan_mode:
+            return LOW_TOOL_SPECS 
+        return TOOL_SPECS       
     def _atomic_units(self, history):
         units = []
         i = 0

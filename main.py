@@ -28,6 +28,7 @@ COMMAND_DESCRIPTIONS = {
         "tools" :  "列出可用工具",
         "provider" : "切换提供商 (list/<name>)",
         "notools": "切换工具开关 (on/off)",
+        "plan" : "开启计划模式",
 }
 def handle_command(cmd):
     """解析命令并执行相应操作"""
@@ -45,6 +46,7 @@ def handle_command(cmd):
         "tools": lambda:handle_tools_command(),
         "provider":lambda:handle_provider_command(parts),
         "notools": lambda: handle_notools_command(parts),
+        "plan" : lambda:handle_plan_command(),
     }
     if action in command_handlers:
         return command_handlers[action]()
@@ -163,7 +165,8 @@ def handle_notools_command(parts):
         return
     agent.tools_enabled = (parts[1] == "on")
     console.print(f"工具调用已{'开启' if agent.tools_enabled else '关闭'}")
-
+def handle_plan_command():
+    agent.plan_mode = True
 if __name__ == "__main__":
     agent = Agent(client, config, persona)
     while True:
@@ -183,10 +186,22 @@ if __name__ == "__main__":
                 if result == "exit":
                     break
                 continue
+            if agent.plan_mode:
+                if cin.lower() in ("yes", "y"):
+                    agent.plan_mode=False
+                    agent.tools_enabled = True
+                elif cin.lower() in ("no", "n") or not cin.strip():
+                    agent.plan_mode = True 
+                    console.print("可继续输入新问题:")
+                    continue
+                else:
+                    agent.plan_mode = True
             reply = agent.chat(cin)
             if reply:
                 console.print()
                 console.print(Markdown(reply))
+            if agent.plan_mode:                         
+                console.print("\n是否接受这个方案？(yes / no / 修改建议)")
         except KeyboardInterrupt:
             console.print("\n已中断任务，输入 /exit 退出程序")
         except EOFError:

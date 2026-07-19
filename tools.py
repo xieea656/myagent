@@ -55,6 +55,14 @@ def run_bash(command: str, timeout: int = BASH_TIMEOUT, max_chars: int = MAX_OUT
     if len(output) > max_chars:
         output = output[:max_chars] + f"\n\n[truncated - showed {max_chars} of {len(output)} chars]"
     return f"[exit code: {result.returncode}]\n{output}"
+def write_file(path: str,content: str) -> str:
+    """写文件工具"""
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content)
+        return f"成功写入文件: {path} ({len(content)} 字符)"
+    except Exception as e:
+        return f"Error:写入文件 '{path}' 时发生错误: {e}"
 
 def show_tools() -> str:
     """返回人类可读的工具列表 + 一行说明。"""
@@ -86,41 +94,100 @@ def dispatch_tool(name,args):
         return str(handler(**args))
     except Exception as e:
         return f"Error: {type(e).__name__}: {e}"
-TOOL_HANDLERS = {
-      "read_file": read_file,
-      "run_bash" : run_bash,
-  }
+
 TOOL_SPECS = [
-      {
-          "type": "function",
-          "function": {
-              "name": "read_file",
-              "description": "读取文件的工具",          
-              "parameters": {
-                  "type": "object",
-                  "properties": {
-                      "path": {
-                          "type": "string",
-                          "description": "要读的文件的绝对路径,例如 '/home/xieea/coding/myagent/main.py'"
-                      }
-                  },
-                  "required": ["path"]
-              }
-          }
-      },
-      {
-      "type": "function",
-      "function": {
-          "name": "run_bash",
-          "description": "执行 shell 命令(需用户确认)",
-          "parameters": {
-              "type": "object",
-              "properties": {
-                  "command": {"type": "string", "description": "要执行的 shell 命令"}
-              },
-              "required": ["command"]
-          }
-      }
-  }
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "读取文件的工具",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "要读的文件的绝对路径"
+                    }
+                },
+                "required": ["path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_bash",
+            "description": "执行 shell 命令(需用户确认)",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "description": "要执行的 shell 命令"}
+                },
+                "required": ["command"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": "写入文件(覆盖已存在的文件)",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "要写入的文件路径"},
+                    "content": {"type": "string", "description": "要写入的文件内容"}
+                },
+                "required": ["path", "content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "enter_plan_mode",
+            "description": "当任务复杂需要先规划再执行时，进入计划模式",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
 ]
-        
+
+LOW_TOOL_SPECS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "读取文件的工具",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "要读的文件的绝对路径"
+                    }
+                },
+                "required": ["path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "enter_plan_mode",
+            "description": "当任务复杂需要先规划再执行时，进入计划模式",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+]
+
+TOOL_HANDLERS = {
+    "read_file": read_file,
+    "run_bash": run_bash,
+    "write_file": write_file,
+}
