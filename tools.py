@@ -1,6 +1,7 @@
 """agent的工具列表与函数集"""
 from rich.console import Console
-import os , json , subprocess
+import os , json , subprocess , requests
+from config import get_anysearch_key
 MAX_OUTPUT_CHARS = 10000
 BASH_TIMEOUT = 30
 console = Console()
@@ -63,6 +64,42 @@ def write_file(path: str,content: str) -> str:
         return f"成功写入文件: {path} ({len(content)} 字符)"
     except Exception as e:
         return f"Error:写入文件 '{path}' 时发生错误: {e}"
+
+ANYSEARCH_ENDPOINT = "https://api.anysearch.com/mcp"
+
+def _call_anysearch(tool_name: str, arguments: dict) -> str:
+    """调用 AnySearch JSON-RPC API"""
+    api_key = get_anysearch_key()
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    payload = {
+        "jsonrpc": "2.0", "id": 1,
+        "method": "tools/call",
+        "params": {"name": tool_name, "arguments": arguments},
+    }
+    try:
+        resp = requests.post(ANYSEARCH_ENDPOINT, json=payload, headers=headers, timeout=30)
+        resp.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        return f"Error: 搜索请求失败: {e}"
+    data = resp.json()
+    if "error" in data:
+        return f"Error: API 错误: {data['error'].get('message', str(data['error']))}"
+    result = data.get("result", {})
+    content = result.get("content", [])
+    for item in content:
+        if item.get("type") == "text":
+            return item.get("text", "")
+    return json.dumps(result, indent=2, ensure_ascii=False)
+
+def search_web(query: str, max_results: int = 5) -> str:
+    """搜索网页工具"""
+    if max_results < 1:
+        max_results = 1
+    if max_results > 20:
+        max_results = 20
+    return _call_anysearch("search", {"query": query, "max_results": max_results})
 
 def show_tools() -> str:
     """返回人类可读的工具列表 + 一行说明。"""
@@ -153,6 +190,21 @@ TOOL_SPECS = [
             }
         }
     },
+    {
+        "type" : "function" ,
+        "function" : {
+            "name" : "search_web",
+            "description" : "搜索网页，获取实时信息。支持一般搜索和垂直领域搜索",
+            "parameters" : {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "搜索关键词"},
+                    "max_results": {"type": "integer", "description": "返回结果数量，默认5，最大20"}
+                },
+                "required": ["query"]
+            }
+        }
+    },
 ]
 
 LOW_TOOL_SPECS = [
@@ -184,10 +236,26 @@ LOW_TOOL_SPECS = [
             }
         }
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_web",
+            "description": "搜索网页，获取实时信息。支持一般搜索和垂直领域搜索",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "搜索关键词"},
+                    "max_results": {"type": "integer", "description": "返回结果数量，默认5，最大20"}
+                },
+                "required": ["query"]
+            }
+        }
+    },
 ]
 
 TOOL_HANDLERS = {
     "read_file": read_file,
     "run_bash": run_bash,
     "write_file": write_file,
+    "search_web": search_web,
 }

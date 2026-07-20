@@ -8,7 +8,8 @@ with open("config.yaml", "r", encoding="utf-8") as f:
      yaml_config = yaml.safe_load(f)
 default = yaml_config["default_provider"]          
 provider = yaml_config["providers"][default] 
-API_KEY = os.getenv(provider["api_key_env"])        
+API_KEY = os.getenv(provider["api_key_env"]) 
+ANYSEARCH_API_KEY = os.getenv("ANYSEARCH_API_KEY")       
 if not API_KEY:
       raise ValueError(f"请在 .env 中设置 {provider['api_key_env']}")
 Base_URL = provider["base_url"]
@@ -19,6 +20,8 @@ def get_config():
 def list_providers():
     with open("config.yaml", "r", encoding="utf-8") as f:
         return yaml.safe_load(f)["providers"]
+def get_anysearch_key():
+    return ANYSEARCH_API_KEY
 def switch_provider(name):
     with open("config.yaml", "r", encoding="utf-8") as f:
         providers = yaml.safe_load(f)["providers"]
