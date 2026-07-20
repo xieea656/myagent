@@ -46,7 +46,7 @@ def handle_command(cmd):
         "tools": lambda:handle_tools_command(),
         "provider":lambda:handle_provider_command(parts),
         "notools": lambda: handle_notools_command(parts),
-        "plan" : lambda:handle_plan_command(),
+        "plan" : lambda:handle_plan_command(), 
     }
     if action in command_handlers:
         return command_handlers[action]()

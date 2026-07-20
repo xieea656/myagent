@@ -4,6 +4,7 @@ from system_prompt import SYSTEM_PROMPT ,PLAN_PROMPT
 import datetime, os, platform , json
 from tools import TOOL_SPECS, call_tool_dict,LOW_TOOL_SPECS ,TOOL_HANDLERS
 from rich.console import Console
+from log import log_tool_call
 console = Console()
 MOCK = False
 MAX_TOKENS = 8000
@@ -55,7 +56,13 @@ class Agent:
                     self.plan_mode = True         
                     continue
                 result = call_tool_dict(call)
-                tool_msg = {"role":"tool", "tool_call_id": call["id"],"content": result}
+                tool_msg = {"role":"tool", "tool_call_id": call["id"],"content": result} 
+                log_tool_call(
+                    name = call["function"]["name"],
+                    args = json.loads(call["function"]["arguments"]),
+                    result = result,
+                    status= "error" if result.startswith("Error:") else "success",
+                )
                 self.history.append(tool_msg)
                 self._append_jsonl(tool_msg)
         console.print(f"\n[!] 达到最大迭代次数 {MAX_ITER},回答可能不完整。")

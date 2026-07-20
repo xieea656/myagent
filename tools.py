@@ -33,7 +33,7 @@ def run_bash(command: str, timeout: int = BASH_TIMEOUT, max_chars: int = MAX_OUT
     console.print(f"\n[tool: run_bash] pending command:\n  $ {command}")
     try:
         answer = input(" 是否允许执行? [y/N]: ").strip().lower()
-    except (EOFError, KeyboardInterrupt):     # 非交互 -> 拒绝
+    except (EOFError, KeyboardInterrupt):     
         answer = ""
     if answer not in ("y", "yes"):
         return "Error:请求被用户拒绝"
@@ -82,7 +82,7 @@ def call_tool_dict(call) -> str :
     name = call["function"]["name"]
     raw = call["function"]["arguments"] or "{}"
     try:
-          args = json.loads(raw)                 # ← 字符串 -> dict
+          args = json.loads(raw)                
     except json.JSONDecodeError as e:
           return f"Error: invalid JSON for '{name}': {e}"
     return dispatch_tool(name, args)
