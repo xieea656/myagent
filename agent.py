@@ -1,11 +1,12 @@
 from config import get_config
 from openai import OpenAI
 from system_prompt import SYSTEM_PROMPT ,PLAN_PROMPT
-import datetime, os, platform , json
+import datetime, os, platform , json ,tiktoken
 from tools import TOOL_SPECS, call_tool_dict,LOW_TOOL_SPECS ,TOOL_HANDLERS
 from rich.console import Console
 from log import log_tool_call
 console = Console()
+_enc = tiktoken.get_encoding("cl100k_base")
 MAX_ITER = 25
 class Agent:
     def __init__(self, client, config,persona):
@@ -54,11 +55,13 @@ class Agent:
                 self._append_jsonl(tool_msg)
         console.print(f"\n[!] 达到最大迭代次数 {MAX_ITER},回答可能不完整。")
         return last_content
-
     def estimate_tokens(self, messages):
-        """粗略估算 token 数：总字符数 / 4"""
-        total_chars = sum(len(str(m.get("content", ""))) for m in messages)
-        return (total_chars + 3) // 4
+        """计算token数"""
+        total = 0
+        for m in messages:
+            total += len(_enc.encode(m.get("content", "") or ""))
+            total += 4   
+        return total
     def get_env_info(self):
         """获取环境信息"""
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M %Z")

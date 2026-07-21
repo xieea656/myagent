@@ -1,7 +1,7 @@
 from config import get_config
-import os ,readline
+import os ,readline ,json
 from openai import OpenAI 
-from agent import Agent , MAX_TOKENS
+from agent import Agent 
 from persona import load_persona, list_personas
 from config import switch_provider , list_providers ,  switch_model , list_available_models ,ensure_credentials
 import tools
@@ -101,7 +101,7 @@ def handle_status_command():
     console.print(f"当前provider: {agent.config['provider_name']}")
     console.print(f"模型： {agent.config['Model']}")
     context_tokens = sum(len(str(m.get("content", ""))) // 4 for m in agent.history)
-    console.print(f"{context_tokens} / {MAX_TOKENS} max tokens")
+    console.print(f"{context_tokens} / {agent._trim_budget} max tokens")
     console.print(f"历史消息: {len(agent.history)} 条")
     console.print(f"当前工作目录: {os.getcwd()}")
 
@@ -138,7 +138,8 @@ def handle_resume_command(parts):
     if len(parts) < 2:
         for fname in os.listdir("sessions"):
             if fname.endswith(".jsonl"):
-                console.print(f"- {fname[:-6]}")
+                summary = first_user_msg(f"sessions/{fname}")
+                console.print(f"- {fname[:-6]} | {summary}")
         return
     session_name = parts[1]
     try:
@@ -146,7 +147,16 @@ def handle_resume_command(parts):
         console.print(f"已恢复会话: {session_name} ({len(agent.history)} 条消息)")
     except FileNotFoundError:
         console.print(f"会话文件 sessions/{session_name}.jsonl 不存在。")
-
+def first_user_msg(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                m = json.loads(line)
+                if m.get("role") == "user":
+                    return (m.get("content") or "")[:30]
+    except Exception:
+        pass
+    return ""
 def handle_model_command(parts) :
     if len(parts) < 2 or parts[1] == "list":
         ids = list_available_models(agent.client)
@@ -176,7 +186,7 @@ if __name__ == "__main__":
             console.print(Panel(
                 f"[bold cyan]{agent.config.get(chr(77)+chr(111)+chr(100)+chr(101)+chr(108), chr(63))}[/] [dim]|[/] "
                 f"[bold green]{agent.config.get(chr(112)+chr(114)+chr(111)+chr(118)+chr(105)+chr(100)+chr(101)+chr(114)+chr(95)+chr(110)+chr(97)+chr(109)+chr(101), chr(63))}[/] [dim]|[/] "
-                f"[bold]{used}/{MAX_TOKENS} tokens[/] [dim]|[/] "
+                f"[bold]{used}/{agent._trim_budget} tokens[/] [dim]|[/] "
                 f"[bold yellow]{agent.persona.get(chr(110)+chr(97)+chr(109)+chr(101), chr(63))}[/] [dim]|[/] "
                 f"tools: [{"bold green" if agent.tools_enabled else "bold red"}]{chr(79)+chr(78) if agent.tools_enabled else chr(79)+chr(70)+chr(70)}[/]",
                 style="dim"))
