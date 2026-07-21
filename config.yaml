@@ -4,15 +4,18 @@ providers:
   deepseek:
     api_key_env: API_KEY
     base_url: https://api.deepseek.com
-    default_model: deepseek-chat
+    default_model: deepseek-v4-flash
     capabilities: [chat]
+    context_window: 1000000
   qwen:
     api_key_env: DASHSCOPE_API_KEY
     base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
     default_model: qwen-plus
     capabilities: [chat]
+    context_window: 256000
   mimo:
     api_key_env: MIMO_API_KEY
     base_url: https://token-plan-cn.xiaomimimo.com/v1
     default_model: mimo-v2.5-pro
     capabilities: [chat]
+    context_window: 1000000

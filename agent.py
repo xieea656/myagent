@@ -6,8 +6,6 @@ from tools import TOOL_SPECS, call_tool_dict,LOW_TOOL_SPECS ,TOOL_HANDLERS
 from rich.console import Console
 from log import log_tool_call
 console = Console()
-MOCK = False
-MAX_TOKENS = 8000
 MAX_ITER = 25
 class Agent:
     def __init__(self, client, config,persona):
@@ -19,19 +17,8 @@ class Agent:
         self._new_session_file()
         self.tools_enabled = True
         self.plan_mode = False
+        self._trim_budget = config["context_window"] * 0.8
     def chat(self, cin):
-        
-        if MOCK:
-            mock_text = "你好！这是一个模拟回复。"
-            for char in mock_text:
-                console.print(char, end="")
-            console.print()
-            self.last_messages = [                   
-                {"role": "system", "content": self.persona["system_prompt"]},
-                {"role": "user", "content": cin},
-                {"role": "assistant", "content": mock_text}
-            ]
-            return
         user_msg = {"role": "user", "content": cin}
         self.history.append(user_msg)
         self._append_jsonl(user_msg)
@@ -160,23 +147,20 @@ class Agent:
             i = j
         return units
     def _trim_to_budget(self, messages):
-        while self.estimate_tokens(messages) > MAX_TOKENS:
+        while self.estimate_tokens(messages) > self._trim_budget:
             units = self._atomic_units(self.history)
             if len(units) <= 1:
                 break
-            s,e = units[0]
-            if e < len(self.history) and self.history[e]["role"] != "user":
-                k = next((idx for idx in range(1, len(units)) if self.history[units[idx][0]]["role"] == "user"), None)
-                if k is None:
+            removed = False
+            for i, (s, e) in enumerate(units):
+                if i == 0:
+                    remaining = self.history[e:]
+                else:
+                    remaining = self.history[:s] + self.history[e:]
+                if any(msg["role"] == "user" for msg in remaining):
+                    self.history = remaining
+                    removed = True
                     break
-                e = units[k][0]
-            del self.history[s:e]
+            if not removed:
+                break
             messages[:] = self._build_messages()
-    
-
-
-                    
-                
-
-
-            

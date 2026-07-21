@@ -1,6 +1,7 @@
 """agent的工具列表与函数集"""
 from rich.console import Console
 import os , json , subprocess , requests
+import re
 from config import resolve_credential
 MAX_OUTPUT_CHARS = 10000
 BASH_TIMEOUT = 30
@@ -129,6 +130,29 @@ def call_tool_dict(call) -> str :
     except json.JSONDecodeError as e:
           return f"Error: invalid JSON for '{name}': {e}"
     return dispatch_tool(name, args)
+def classify(name, args):
+    low_names = {s["function"]["name"] for s in LOW_TOOL_SPECS}
+    if name in low_names:
+        return "low"
+    danger = [
+          r"rm\s+(-[a-z]*r[a-z]*f?|-[a-z]*f[a-z]*r?)\s+(/|~|\*)(?=\s|\"|$)",
+          r"mkfs", r"dd\s+.*of=/dev/", r":\(\)\{\s*:\|:&\s*\};:",
+          r">\s*/dev/sd[a-z]", r"chmod\s+-R\s+777\s+/",
+    ]
+    text = json.dumps(args, ensure_ascii=False)
+    for pat in danger:
+        if re.search(pat, text):
+            return "high"
+    return "medium"
+def _ask_user(name, risk):
+    ans = input(f"允许执行 {name}? (y/N)").strip().lower()
+    return {"decision":"allow" if ans=="y" else "deny",
+            "risk":risk,"reason":"用户"+("同意" if ans=="y" else "拒绝")}
+def _check_permission(name,args):
+    risk = classify(name, args)         
+    if risk == "low":  return {"decision":"allow","risk":risk,"reason":"低风险放行"}
+    if risk == "high": return {"decision":"deny", "risk":risk,"reason":"高危拦截"}
+    return _ask_user(name, risk)  
 def dispatch_tool(name,args):
     """执行工具：先解析凭证再调用 handler"""
     handler = TOOL_HANDLERS.get(name)
@@ -144,6 +168,9 @@ def dispatch_tool(name,args):
         cred_value = resolve_credential(cred_name)
         if cred_value:
             args["_credential"] = cred_value
+    perm = _check_permission(name, args)
+    if perm["decision"] == "deny":
+        return f"权限拒绝：{perm['reason']}"
     try:
         return str(handler(**args))
     except Exception as e:

@@ -15,7 +15,7 @@ Base_URL = provider["base_url"]
 Model    = provider["default_model"]
 
 def get_config():
-    return{"API_KEY": API_KEY, "Base_URL": Base_URL, "Model": Model,"provider_name": default,}
+    return{"API_KEY": API_KEY, "Base_URL": Base_URL, "Model": Model,"provider_name": default,"context_window": provider["context_window"]}
 def list_providers():
     with open("config.yaml", "r", encoding="utf-8") as f:
         return yaml.safe_load(f)["providers"]
@@ -33,6 +33,7 @@ def switch_provider(name):
           "Base_URL": info["base_url"],
           "Model": info["default_model"],
           "provider_name": name,
+          "context_window": info["context_window"],
       }
 def switch_model(model_name, current_config):
     new = dict(current_config)
