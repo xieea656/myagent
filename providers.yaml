@@ -1,0 +1,163 @@
+# AI Agent 提供商预设列表
+# 从 cc-switch 内置数据整理
+# 用法：在 config.yaml 中把 providers 字段替换为这个文件的内容
+# 或者用 /provider add <name> 命令自动添加（TODO）
+
+# 格式说明：
+#   api_key_env: 环境变量名（在 .env 或 credentials.yaml 中设置）
+#   base_url: OpenAI 兼容 API 的 base URL
+#   default_model: 默认模型
+#   capabilities: [chat] 或 [chat, vision]（vision 模型支持图片）
+#   context_window: 上下文窗口大小（token 数）
+
+providers:
+  # === 国内主流 ===
+  deepseek:
+    api_key_env: DEEPSEEK_API_KEY
+    base_url: https://api.deepseek.com
+    default_model: deepseek-v4-flash
+    capabilities: [chat]
+    context_window: 1000000
+
+  deepseek-pro:
+    api_key_env: DEEPSEEK_API_KEY
+    base_url: https://api.deepseek.com
+    default_model: deepseek-v4-pro
+    capabilities: [chat]
+    context_window: 1000000
+
+  qwen:
+    api_key_env: DASHSCOPE_API_KEY
+    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    default_model: qwen-plus
+    capabilities: [chat]
+    context_window: 256000
+
+  qwen-coder:
+    api_key_env: DASHSCOPE_API_KEY
+    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    default_model: qwen3-coder-plus
+    capabilities: [chat]
+    context_window: 1048576
+
+  zhipu:
+    api_key_env: ZHIPU_API_KEY
+    base_url: https://open.bigmodel.cn/api/paas/v4
+    default_model: glm-5.1
+    capabilities: [chat]
+    context_window: 200000
+
+  kimi:
+    api_key_env: KIMI_API_KEY
+    base_url: https://api.moonshot.cn/v1
+    default_model: kimi-k2.7-code
+    capabilities: [chat]
+    context_window: 262144
+
+  kimi-coding:
+    api_key_env: KIMI_API_KEY
+    base_url: https://api.kimi.com/v1
+    default_model: kimi-for-coding
+    capabilities: [chat]
+    context_window: 262144
+
+  stepfun:
+    api_key_env: STEP_API_KEY
+    base_url: https://api.stepfun.com/v1
+    default_model: step-3.5-flash-2603
+    capabilities: [chat]
+    context_window: 262144
+
+  minimax:
+    api_key_env: MINIMAX_API_KEY
+    base_url: https://api.minimaxi.com/v1
+    default_model: MiniMax-M3
+    capabilities: [chat]
+    context_window: 1000000
+
+  siliconflow:
+    api_key_env: SILICONFLOW_API_KEY
+    base_url: https://api.siliconflow.cn/v1
+    default_model: Pro/MiniMaxAI/MiniMax-M2.7
+    capabilities: [chat]
+    context_window: 200000
+
+  baidu:
+    api_key_env: BAIDU_API_KEY
+    base_url: https://qianfan.baidubce.com/v2
+    default_model: qianfan-code-latest
+    capabilities: [chat]
+    context_window: 131072
+
+  doubao:
+    api_key_env: DOUBAO_API_KEY
+    base_url: https://ark.cn-beijing.volces.com/api/compatible
+    default_model: doubao-seed-2-1-pro-260628
+    capabilities: [chat]
+    context_window: 262144
+
+  longcat:
+    api_key_env: LONGCAT_API_KEY
+    base_url: https://api.longcat.chat/v1
+    default_model: LongCat-2.0
+    capabilities: [chat]
+    context_window: 1048576
+
+  bailing:
+    api_key_env: BAILING_API_KEY
+    base_url: https://api.tbox.cn/v1
+    default_model: Ling-2.6-1T
+    capabilities: [chat]
+    context_window: 262144
+
+  # === 国际主流 ===
+  openai:
+    api_key_env: OPENAI_API_KEY
+    base_url: https://api.openai.com/v1
+    default_model: gpt-5.5
+    capabilities: [chat]
+    context_window: 256000
+
+  anthropic:
+    api_key_env: ANTHROPIC_API_KEY
+    base_url: https://api.anthropic.com/v1
+    default_model: claude-sonnet-5
+    capabilities: [chat]
+    context_window: 200000
+
+  grok:
+    api_key_env: XAI_API_KEY
+    base_url: https://api.x.ai/v1
+    default_model: grok-4.5
+    capabilities: [chat]
+    context_window: 500000
+
+  openrouter:
+    api_key_env: OPENROUTER_API_KEY
+    base_url: https://openrouter.ai/api/v1
+    default_model: anthropic/claude-sonnet-5
+    capabilities: [chat]
+    context_window: 200000
+
+  # === 代理/聚合服务 ===
+  packycode:
+    api_key_env: PACKYCODE_API_KEY
+    base_url: https://www.packyapi.com
+    default_model: claude-sonnet-5
+    capabilities: [chat]
+    context_window: 200000
+
+  zetaapi:
+    api_key_env: ZETAAPI_API_KEY
+    base_url: https://api.zetaapi.ai
+    default_model: claude-sonnet-5
+    capabilities: [chat]
+    context_window: 200000
+
+  # === 当前已在用的 ===
+  mimo:
+    api_key_env: MIMO_API_KEY
+    base_url: https://token-plan-cn.xiaomimimo.com/v1
+    default_model: mimo-v2.5-pro
+    capabilities: [chat]
+    context_window: 1000000
