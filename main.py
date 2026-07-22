@@ -3,7 +3,7 @@ import os ,readline ,json
 from openai import OpenAI 
 from agent import Agent 
 from persona import load_persona, list_personas
-from config import switch_provider , list_providers ,  switch_model , list_available_models ,ensure_credentials
+from config import switch_provider , list_providers ,  switch_model , list_available_models ,ensure_credentials , load_all_credentials , add_credential , remove_credential
 import tools
 from rich.console import Console
 from rich.rule import Rule
@@ -29,6 +29,7 @@ COMMAND_DESCRIPTIONS = {
         "provider" : "切换提供商 (list/<name>)",
         "notools": "切换工具开关 (on/off)",
         "plan" : "开启计划模式",
+        "credential" : "添加凭证"
 }
 def handle_command(cmd):
     """解析命令并执行相应操作"""
@@ -47,6 +48,7 @@ def handle_command(cmd):
         "provider":lambda:handle_provider_command(parts),
         "notools": lambda: handle_notools_command(parts),
         "plan" : lambda:handle_plan_command(), 
+        "credential": lambda: handle_credential_command(parts),
     }
     if action in command_handlers:
         return command_handlers[action]()
@@ -217,3 +219,29 @@ if __name__ == "__main__":
             console.print("\n已中断任务，输入 /exit 退出程序")
         except EOFError:
             break
+def handle_credential_command(parts):
+    if len(parts) < 2:
+        console.print("用法: /credential list | add <name> <value> | remove <name>")
+        return
+    sub = parts[1]
+    if sub == "list":
+        creds = load_all_credentials()
+        if not creds:
+            console.print("暂无凭证")
+        else:
+            console.print("已注册凭证: " + ", ".join(creds.keys()))
+    elif sub == "add":
+        if len(parts) < 4:
+            console.print("用法: /credential add <name> <value>")
+            return
+        add_credential(parts[2], parts[3])
+        console.print(f"凭证 {parts[2]} 已添加")
+    elif sub == "remove":
+        if len(parts) < 3:
+            console.print("用法: /credential remove <name>")
+            return
+        if remove_credential(parts[2]):
+            console.print(f"凭证 {parts[2]} 已删除")
+        else:
+            console.print(f"凭证 {parts[2]} 不存在")
+        

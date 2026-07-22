@@ -2,7 +2,7 @@
 from rich.console import Console
 import os , json , subprocess , requests
 import re
-from config import resolve_credential
+from config import resolve_credential, load_all_credentials
 MAX_OUTPUT_CHARS = 10000
 BASH_TIMEOUT = 30
 console = Console()
@@ -40,17 +40,25 @@ def run_bash(command: str, timeout: int = BASH_TIMEOUT, max_chars: int = MAX_OUT
     console.print(f"\n[tool: run_bash] pending command:\n  $ {command}")
     try:
         answer = input(" 是否允许执行? [y/N]: ").strip().lower()
-    except (EOFError, KeyboardInterrupt):     
+    except (EOFError, KeyboardInterrupt):
         answer = ""
     if answer not in ("y", "yes"):
         return "Error:请求被用户拒绝"
+    creds = load_all_credentials()
+    used = re.findall(r"\$CRED_([A-Z_]+)", command)
+    env = os.environ.copy()
+    for cred_name in used:
+        key_in_yaml = cred_name.lower()
+        if key_in_yaml in creds:
+            env["CRED_" + cred_name] = creds[key_in_yaml]
     try:
         result = subprocess.run(
         command,
-        shell=True,          
-        capture_output=True,  
-        text=True,            
-        timeout=timeout,      
+        shell=True,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env=env,
         )
     except subprocess.TimeoutExpired: return f"Error:命令超时({timeout}s)"
     except Exception as e:return f"Error:executing command: {e}"
@@ -61,6 +69,11 @@ def run_bash(command: str, timeout: int = BASH_TIMEOUT, max_chars: int = MAX_OUT
         output = "(无输出)"
     if len(output) > max_chars:
         output = output[:max_chars] + f"\n\n[truncated - showed {max_chars} of {len(output)} chars]"
+    for cred_name in used:                                      
+        key_in_yaml = cred_name.lower()                         
+        val = creds.get(key_in_yaml)                            
+        if val and len(val) > 4:                                
+            output = output.replace(val, "***")
     return f"[exit code: {result.returncode}]\n{output}"
 def write_file(path: str,content: str) -> str:
     """写文件工具"""

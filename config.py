@@ -64,6 +64,50 @@ def resolve_credential(name):
     if entry.get("type") == "env":
         return os.getenv(entry["value"])
     return entry.get("value")
+def load_all_credentials():
+    """返回 {name: value} 字典，供 run_bash 环境变量注入用"""
+    path = os.path.expanduser("~/.config/myagent/credentials.yaml")
+    if not os.path.exists(path):
+        return {}
+    with open(path, "r") as f:
+        raw = yaml.safe_load(f) or {}
+    result = {}
+    for name, entry in raw.items():
+        if isinstance(entry, dict):
+            if entry.get("type") == "env":
+                result[name] = os.getenv(entry["value"])
+            else:
+                result[name] = entry.get("value")
+        else:
+            result[name] = entry
+    return result
+
+def add_credential(name, value):
+    """追加一个凭证"""
+    path = os.path.expanduser("~/.config/myagent/credentials.yaml")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    creds = {}
+    if os.path.exists(path):
+        with open(path, "r") as f:
+            creds = yaml.safe_load(f) or {}
+    creds[name] = {"type": "api-key", "value": value}
+    with open(path, "w") as f:
+        yaml.dump(creds, f, allow_unicode=True)
+
+def remove_credential(name):
+    """删除一个凭证"""
+    path = os.path.expanduser("~/.config/myagent/credentials.yaml")
+    if not os.path.exists(path):
+        return False
+    with open(path, "r") as f:
+        creds = yaml.safe_load(f) or {}
+    if name not in creds:
+        return False
+    del creds[name]
+    with open(path, "w") as f:
+        yaml.dump(creds, f, allow_unicode=True)
+    return True
+
 def ensure_credentials():
     """检测 credentials.yaml，不存在则交互式初始化"""
     path = os.path.expanduser("~/.config/myagent/credentials.yaml")
