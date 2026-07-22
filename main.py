@@ -1,20 +1,18 @@
 from config import get_config
-import os ,readline ,json
-from openai import OpenAI 
-from agent import Agent 
+import os ,readline ,json, shutil
+from openai import OpenAI
+from agent import Agent
 from persona import load_persona, list_personas
 from config import switch_provider , list_providers ,  switch_model , list_available_models ,ensure_credentials , load_all_credentials , add_credential , remove_credential
 import tools
+from prompt_toolkit import PromptSession
+from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.styles import Style
 from rich.console import Console
-from rich.rule import Rule
-from rich.panel import Panel
-from rich.markdown import Markdown
 console = Console()
 persona = load_persona("default")
 config = get_config()
 client = OpenAI(api_key=config["API_KEY"], base_url=config["Base_URL"])
-def print_separator():
-    console.print(Rule(style="dim"))
 
 COMMAND_DESCRIPTIONS = {
         "exit":    "退出程序",
@@ -88,11 +86,11 @@ def handle_debug_command(parts):
               return
           else:
             for i, msg in enumerate(agent.last_messages):
-                role = msg["role"]
-                preview = str(msg["content"])[:80]
-                tokens = len(str(msg["content"])) // 4
+                role = msg.role
+                preview = str(msg.content)[:80]
+                tokens = len(str(msg.content)) // 4
                 console.print(f"[{i}] {role}: {tokens}t | {preview}...")
-            console.print(f"总计: {sum(len(str(m['content']))//4 for m in agent.last_messages)} tokens")
+            console.print(f"总计: {sum(len(str(m.content))//4 for m in agent.last_messages)} tokens")
 def handle_help_command():
     for cmd_name, desc in COMMAND_DESCRIPTIONS.items():
         console.print(f"  /{cmd_name}  {desc}")    
@@ -179,46 +177,6 @@ def handle_notools_command(parts):
     console.print(f"工具调用已{'开启' if agent.tools_enabled else '关闭'}")
 def handle_plan_command():
     agent.plan_mode = True
-if __name__ == "__main__":
-    ensure_credentials()
-    agent = Agent(client, config, persona)
-    while True:
-        try:
-            used = agent.estimate_tokens(agent.history)
-            console.print(Panel(
-                f"[bold cyan]{agent.config.get(chr(77)+chr(111)+chr(100)+chr(101)+chr(108), chr(63))}[/] [dim]|[/] "
-                f"[bold green]{agent.config.get(chr(112)+chr(114)+chr(111)+chr(118)+chr(105)+chr(100)+chr(101)+chr(114)+chr(95)+chr(110)+chr(97)+chr(109)+chr(101), chr(63))}[/] [dim]|[/] "
-                f"[bold]{used}/{agent._trim_budget} tokens[/] [dim]|[/] "
-                f"[bold yellow]{agent.persona.get(chr(110)+chr(97)+chr(109)+chr(101), chr(63))}[/] [dim]|[/] "
-                f"tools: [{"bold green" if agent.tools_enabled else "bold red"}]{chr(79)+chr(78) if agent.tools_enabled else chr(79)+chr(70)+chr(70)}[/]",
-                style="dim"))
-            console.print(Rule(style="dim"))
-            cin = input("> ")
-            if cin.startswith("/"):
-                result = handle_command(cin)
-                if result == "exit":
-                    break
-                continue
-            if agent.plan_mode:
-                if cin.lower() in ("yes", "y"):
-                    agent.plan_mode=False
-                    agent.tools_enabled = True
-                elif cin.lower() in ("no", "n") or not cin.strip():
-                    agent.plan_mode = True 
-                    console.print("可继续输入新问题:")
-                    continue
-                else:
-                    agent.plan_mode = True
-            reply = agent.chat(cin)
-            if reply:
-                console.print()
-                console.print(Markdown(reply))
-            if agent.plan_mode:                         
-                console.print("\n是否接受这个方案？(yes / no / 修改建议)")
-        except KeyboardInterrupt:
-            console.print("\n已中断任务，输入 /exit 退出程序")
-        except EOFError:
-            break
 def handle_credential_command(parts):
     if len(parts) < 2:
         console.print("用法: /credential list | add <name> <value> | remove <name>")
@@ -244,4 +202,49 @@ def handle_credential_command(parts):
             console.print(f"凭证 {parts[2]} 已删除")
         else:
             console.print(f"凭证 {parts[2]} 不存在")
+def toolbar():
+    used = agent.estimate_tokens(agent.history)
+    model = agent.config.get("Model", "?")
+    provider = agent.config.get("provider_name", "?")
+    pname = agent.persona.get("name", "?")
+    tools_status = "ON" if agent.tools_enabled else "OFF"
+    cols = shutil.get_terminal_size().columns
+    sep = "─" * cols
+    return f'{sep}\n{model} | {provider} | {used}/{agent._trim_budget} tokens | {pname} | tools: {tools_status}'
+if __name__ == "__main__":
+    ensure_credentials()
+    agent = Agent(client, config, persona)
+    agent.events.on("text_delta", lambda d: console.print(d["text"], end=""))
+    agent.events.on("reasoning_delta", lambda d: console.print(d["text"], end=""))
+    agent.events.on("step_start", lambda d: console.print(f"[step {d['step']} | {d['tokens']} tokens]"))
+    agent.events.on("max_iter", lambda d: console.print(f"\n[!] 达到最大迭代次数 {d['max_iter']},回答可能不完整。"))
+    session = PromptSession(bottom_toolbar=toolbar, style=Style.from_dict({"bottom-toolbar": "noreverse"}))
+    while True:
+        try:
+            cin = session.prompt(HTML('<ansigreen>❯ </ansigreen>'))
+            if cin.startswith("/"):
+                result = handle_command(cin)
+                if result == "exit":
+                    break
+                continue
+            if agent.plan_mode:
+                if cin.lower() in ("yes", "y"):
+                    agent.plan_mode=False
+                    agent.tools_enabled = True
+                elif cin.lower() in ("no", "n") or not cin.strip():
+                    agent.plan_mode = True 
+                    console.print("可继续输入新问题:")
+                    continue
+                else:
+                    agent.plan_mode = True
+            reply = agent.chat(cin)
+            if reply:
+                console.print()
+            if agent.plan_mode:                         
+                console.print("\n是否接受这个方案？(yes / no / 修改建议)")
+        except KeyboardInterrupt:
+            console.print("\n已中断任务，输入 /exit 退出程序")
+        except EOFError:
+            break
+
         

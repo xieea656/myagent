@@ -14,6 +14,8 @@ def read_file(path: str, max_chars: int = MAX_OUTPUT_CHARS) -> str:
     for blocked in blacklist:
         if real_path.startswith(blocked):
             return f"Error:无权读取此文件"
+    if os.path.basename(real_path) == ".env":
+        return f"Error:无权读取此文件"
     if os.path.isdir(path):
         return f"Error:'{path}' 是一个目录,无法读取"
     try:

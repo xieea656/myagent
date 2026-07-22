@@ -54,16 +54,16 @@ def list_available_models(client):
 def resolve_credential(name):
     """从 credentials.yaml 按名查找凭证，返回 value"""
     path = os.path.expanduser("~/.config/myagent/credentials.yaml")
-    if not os.path.exists(path):
-        return None
-    with open(path, "r") as f:
-        creds = yaml.safe_load(f) or {}
-    entry = creds.get(name)
-    if not entry:
-        return None
-    if entry.get("type") == "env":
-        return os.getenv(entry["value"])
-    return entry.get("value")
+    if os.path.exists(path):
+        with open(path, "r") as f:
+            creds = yaml.safe_load(f) or {}
+        entry = creds.get(name)
+        if entry:
+            if entry.get("type") == "env":
+                return os.getenv(entry["value"])
+            return entry.get("value")
+    # fallback: 检查环境变量 {NAME}_API_KEY
+    return os.getenv(f"{name.upper()}_API_KEY")
 def load_all_credentials():
     """返回 {name: value} 字典，供 run_bash 环境变量注入用"""
     path = os.path.expanduser("~/.config/myagent/credentials.yaml")

@@ -3,9 +3,9 @@ from openai import OpenAI
 from system_prompt import SYSTEM_PROMPT ,PLAN_PROMPT
 import datetime, os, platform , json ,tiktoken
 from tools import TOOL_SPECS, call_tool_dict,LOW_TOOL_SPECS ,TOOL_HANDLERS
-from rich.console import Console
 from log import log_tool_call
-console = Console()
+from events import EventBus
+from message import AgentMessage 
 _enc = tiktoken.get_encoding("cl100k_base")
 MAX_ITER = 25
 class Agent:
@@ -19,8 +19,9 @@ class Agent:
         self.tools_enabled = True
         self.plan_mode = False
         self._trim_budget = config["context_window"] * 0.8
+        self.events = EventBus()
     def chat(self, cin):
-        user_msg = {"role": "user", "content": cin}
+        user_msg = AgentMessage(role="user", content=cin)
         self.history.append(user_msg)
         self._append_jsonl(user_msg)
         last_content = ""
@@ -29,22 +30,23 @@ class Agent:
             self._trim_to_budget(messages)
             self.last_messages = messages
             used = self.estimate_tokens(messages)
+            self.events.emit("step_start",step=step+1, tokens=used)
             r = self._stream_completion(messages, self._active_tools())
-            console.print(f"[step {step+1} | {used} tokens]")
             last_content = r["content"]
-            asst = {"role": "assistant", "content": r["content"] or None}
-            if r["tool_calls"]:
-                asst["tool_calls"] = r["tool_calls"]
+            asst = AgentMessage(role="assistant", content=r["content"] or "", tool_calls=r["tool_calls"])
             self.history.append(asst)
             self._append_jsonl(asst)
             if not r["tool_calls"]:
+                self.events.emit("response_done", content=last_content)
                 return last_content
             for call in r["tool_calls"]:
                 if call["function"]["name"] == "enter_plan_mode":
-                    self.plan_mode = True         
+                    self.plan_mode = True
                     continue
+                self.events.emit("tool_call", name=call["function"]["name"], args=json.loads(call["function"]["arguments"]))
                 result = call_tool_dict(call)
-                tool_msg = {"role":"tool", "tool_call_id": call["id"],"content": result} 
+                self.events.emit("tool_result", name=call["function"]["name"], status="error" if result.startswith("Error:") else "success", result=result)
+                tool_msg = AgentMessage(role="tool", tool_call_id=call["id"], content=result) 
                 log_tool_call(
                     name = call["function"]["name"],
                     args = json.loads(call["function"]["arguments"]),
@@ -53,13 +55,14 @@ class Agent:
                 )
                 self.history.append(tool_msg)
                 self._append_jsonl(tool_msg)
-        console.print(f"\n[!] 达到最大迭代次数 {MAX_ITER},回答可能不完整。")
+        self.events.emit("max_iter", max_iter=25)
         return last_content
     def estimate_tokens(self, messages):
         """计算token数"""
         total = 0
         for m in messages:
-            total += len(_enc.encode(m.get("content", "") or ""))
+            content = m.content if hasattr(m, "content") else m.get("content", "")
+            total += len(_enc.encode(content))
             total += 4   
         return total
     def get_env_info(self):
@@ -82,7 +85,7 @@ class Agent:
             name = name[:-6]
         path = f"sessions/{name}.jsonl"
         with open(path, "r", encoding="utf-8") as f:
-            self.history = [json.loads(line) for line in f if line.strip()]
+            self.history = [AgentMessage.from_dict(json.loads(line)) for line in f if line.strip()]
             self.session_file = path
     def _stream_completion(self,messages,tools=None):
         """构造 assistant 消息"""
@@ -98,9 +101,9 @@ class Agent:
                 continue
             delta = chunk.choices[0].delta
             if getattr(delta, "reasoning_content", None):
-                console.print(delta.reasoning_content, end="")
+                self.events.emit("reasoning_delta", text=delta.reasoning_content)
             if delta.content:
-                console.print(delta.content, end="")
+                self.events.emit("text_delta", text=delta.content)
                 content += delta.content
             for tc in (getattr(delta, "tool_calls", None) or []):
                 slot = tc_acc.setdefault(tc.index, {"id":"", "name":"", "arguments":""})
@@ -108,7 +111,6 @@ class Agent:
                 if tc.function:
                     if tc.function.name: slot["name"] = tc.function.name
                     if tc.function.arguments: slot["arguments"] += tc.function.arguments
-        console.print()
         tool_calls = None
         if tc_acc:
             tool_calls = [
@@ -121,15 +123,15 @@ class Agent:
         messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "system", "content": self.persona["system_prompt"]},
-                *self.history,
+                *[m.to_llm() for m in self.history],
                 {"role": "system", "content": self.get_env_info()},
             ]
         if self.plan_mode:
             messages.insert(2, {"role": "system", "content": PLAN_PROMPT})
         return messages
-    def  _append_jsonl(self, obj):
+    def  _append_jsonl(self, msg):
         with open(self.session_file, "a", encoding="utf-8") as f:
-            f.write(json.dumps(obj, ensure_ascii=False) + "\n") 
+            f.write(json.dumps(msg.to_dict(), ensure_ascii=False) + "\n") 
     def _active_tools(self):
         if not self.tools_enabled:
             return None                  
@@ -141,8 +143,8 @@ class Agent:
         i = 0
         while i < len(history):
             j = i+1
-            if history[i].get("tool_calls"):
-                while j < len(history) and history[j]["role"] == "tool":
+            if history[i].tool_calls:
+                while j < len(history) and history[j].role == "tool":
                     j +=1
                 units.append((i,j))
             else :
@@ -150,7 +152,7 @@ class Agent:
             i = j
         return units
     def _trim_to_budget(self, messages):
-        while self.estimate_tokens(messages) > self._trim_budget:
+        while self.estimate_tokens(self.history) > self._trim_budget:
             units = self._atomic_units(self.history)
             if len(units) <= 1:
                 break
@@ -160,7 +162,7 @@ class Agent:
                     remaining = self.history[e:]
                 else:
                     remaining = self.history[:s] + self.history[e:]
-                if any(msg["role"] == "user" for msg in remaining):
+                if any(msg.role == "user" for msg in remaining):
                     self.history = remaining
                     removed = True
                     break
