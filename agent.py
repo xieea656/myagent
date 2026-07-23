@@ -3,6 +3,7 @@ from openai import OpenAI
 from system_prompt import SYSTEM_PROMPT ,PLAN_PROMPT ,COMPRESS_SYSTEM,COMPRESS_PROMPT
 import datetime, os, platform , json ,tiktoken
 from tools import TOOL_SPECS, call_tool_dict,LOW_TOOL_SPECS ,TOOL_HANDLERS
+import tools as tools_mod
 from log import log_tool_call, l2_summary, read_line
 from events import EventBus
 from message import AgentMessage
@@ -34,6 +35,7 @@ class Agent:
         self.memory_index = MemoryIndex()
         self.memory_index_text = ""
         self.memory_dir = ".xlink/memory/"
+        self.permission_mode = "auto"
         self.max_iter = MAX_ITER
         self.compress_reserve_rounds = COMPRESS_RESERVE_ROUNDS
         self.compress_trigger_ratio = COMPRESS_TRIGGER_RATIO
@@ -96,6 +98,16 @@ class Agent:
                     self._handle_list_memories(call)
                     continue
                 self.events.emit("tool_call", name=call["function"]["name"], args=json.loads(call["function"]["arguments"]))
+                tools_mod.PERMISSION_MODE = self.permission_mode
+                if self.permission_mode == "auto":
+                    review = self._ai_review_tool(call)
+                    if not review["approved"]:
+                        result = f"AI审核拦截: {review['reason']}"
+                        tool_msg = AgentMessage(role="tool", tool_call_id=call["id"], content=result)
+                        self.history.append(tool_msg)
+                        self._append_jsonl(tool_msg)
+                        self.events.emit("tool_result", name=call["function"]["name"], status="error", result=result)
+                        continue
                 result = call_tool_dict(call)
                 status = "error" if result.startswith("Error:") else "success"
                 self.events.emit("tool_result", name=call["function"]["name"], status=status, result=result)
@@ -106,12 +118,17 @@ class Agent:
                 date, ln = log_tool_call(
                     name = call["function"]["name"],
                     args = json.loads(call["function"]["arguments"]),
-                    result = result,
+                    result = result,       # 全量存日志
                     status= status,
                 )
+                # 日志已存，现在截断 result 给上下文用
+                MAX_CTX = 10000
+                if len(result) > MAX_CTX:
+                    result = result[:MAX_CTX] + f"\n\n[truncated for context - full output in log:{date}:{ln}]"
                 l2 = l2_summary(call["function"]["name"], result, status, date, ln)
                 MEMORY_TOOLS = {"remember_memory", "forget_memory", "read_memory", "search_memories", "list_memories"}
-                if len(result) < 500 or call["function"]["name"] in MEMORY_TOOLS | {"read_log_line"}:
+                NO_L2_TOOLS = MEMORY_TOOLS | {"read_log_line", "edit_file", "list_files", "search_files"}
+                if len(result) < 500 or call["function"]["name"] in NO_L2_TOOLS:
                     tool_msg = AgentMessage(role="tool", tool_call_id=call["id"], content=result)
                 else:
                     tool_msg = AgentMessage(role="tool", tool_call_id=call["id"], content=l2)
@@ -212,8 +229,19 @@ class Agent:
         if last_user_idx >= 0:
             # ⑤ 被保留的未压缩上下文（最后一条用户消息之前的所有历史）
             messages.extend(history[:last_user_idx])
-            # ⑥ 这一轮新增的内容（最后一条用户消息 + 后续工具结果）
-            messages.extend(history[last_user_idx:])
+            # ⑥ 这一轮新增的内容（工具执行链，跳过纯文本助手回复）
+            chain = [history[last_user_idx]]  # 用户消息
+            for m in history[last_user_idx + 1:]:
+                if m["role"] == "tool":
+                    chain.append(m)
+                elif m["role"] == "assistant" and m.get("tool_calls"):
+                    # 保留工具调用，清空文本，避免 LLM 看到自己的话陷入循环
+                    m_copy = dict(m)
+                    m_copy["content"] = ""
+                    chain.append(m_copy)
+                elif m["role"] == "assistant":
+                    continue  # 纯文本跳过（最终回复，在 ⑤ 里已有）
+            messages.extend(chain)
         else:
             messages.extend(history)
         # ⑦ 工作记忆
@@ -229,10 +257,6 @@ class Agent:
         # ⑨-b 持久记忆索引（跨会话，不会随压缩丢弃）
         if self.memory_index_text:
             messages.append({"role": "system", "content": f"## 持久记忆\n{self.memory_index_text}"})
-        # ⑩ 用户消息重放（最后一条，recency 效应最大）
-        if last_user_idx >= 0:
-            user_msg = history[last_user_idx]
-            messages.append({"role": "system", "content": f"## 用户消息重放（非新请求，仅作参考）\n{user_msg['content']}"})
         return messages
     def  _append_jsonl(self, msg):
         self.memory_index.index_message(msg)
@@ -265,6 +289,51 @@ class Agent:
             for msg in self.history[s:e]:
                 parts.append(f"[{msg.role}]\n{msg.content}")
         return "\n\n".join(parts)
+
+    AI_REVIEW_SYSTEM = """你是一个严格但公正的AI安全审核员。你的任务只有一个：判断工具调用是否合理。
+
+审核规则：
+- 只读操作（read_file, list_files, search_files, read_log_line, list_memories, read_memory等）→ 批准
+- 写操作（write_file, edit_file, run_bash等）→ 看内容是否合理
+- 危险操作（rm -rf /, dd, chmod -R 777等）→ 拒绝
+- 搜索操作（search_web, search_files）→ 批准
+- 内存操作（remember_memory, forget_memory, search_memories）→ 批准
+
+输出格式（JSON，不要加其他内容）：
+{"approved": true/false, "reason": "简短理由"}
+
+注意：不确定时放行，只有明确危险才拒绝。"""
+
+    def _ai_review_tool(self, call):
+        """Auto 模式下的 AI 审核"""
+        name = call["function"]["name"]
+        args = call["function"].get("arguments", "{}")
+        try:
+            recent = self.history[-6:] if len(self.history) >= 6 else self.history[:]
+            context = "\n".join(f"[{m.role}] {m.content[:200]}" for m in recent if m.content)
+        except Exception:
+            context = ""
+        prompt = f"工具: {name}\n参数: {args}\n\n最近上下文:\n{context}"
+        try:
+            resp = self.client.chat.completions.create(
+                model=self.config["Model"],
+                messages=[
+                    {"role": "system", "content": self.AI_REVIEW_SYSTEM},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1,
+                max_tokens=200,
+            )
+            raw = resp.choices[0].message.content.strip()
+            import re
+            m = re.search(r'\{[^}]+\}', raw)
+            if m:
+                result = json.loads(m.group(0))
+                return {"approved": result.get("approved", True), "reason": result.get("reason", "AI审核通过")}
+        except Exception:
+            pass
+        return {"approved": True, "reason": "审核异常，默认放行"}
+
     def _compress(self):
         total = self.estimate_tokens(self.history) + self.estimate_tokens(self.compressed)
         if total < self.compress_trigger_ratio * self._trim_budget:

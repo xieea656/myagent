@@ -50,12 +50,13 @@ def read_file(path: str, max_chars: int = MAX_OUTPUT_CHARS) -> str:
 def run_bash(command: str, timeout: int = BASH_TIMEOUT, max_chars: int = MAX_OUTPUT_CHARS) -> str:
     """bash工具"""
     console.print(f"\n[tool: run_bash] pending command:\n  $ {command}")
-    try:
-        answer = input(" 是否允许执行? [y/N]: ").strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        answer = ""
-    if answer not in ("y", "yes"):
-        return "Error:请求被用户拒绝"
+    if PERMISSION_MODE != "yolo" and PERMISSION_MODE != "auto":
+        try:
+            answer = input(" 是否允许执行? [y/N]: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            answer = ""
+        if answer not in ("y", "yes"):
+            return "Error:请求被用户拒绝"
     creds = load_all_credentials()
     used = re.findall(r"\$CRED_([A-Z_]+)", command)
     env = os.environ.copy()
@@ -79,8 +80,7 @@ def run_bash(command: str, timeout: int = BASH_TIMEOUT, max_chars: int = MAX_OUT
         output += f"\n[stderr]\n{result.stderr}"
     if not output.strip():
         output = "(无输出)"
-    if len(output) > SAFETY_LIMIT:
-        output = output[:SAFETY_LIMIT] + f"\n\n[truncated at safety limit - showed {SAFETY_LIMIT} of {len(output)} chars]"
+    # 安全截断移到 agent.py（先存日志再截），这里只做凭证脱敏
     for cred_name in used:                                      
         key_in_yaml = cred_name.lower()                         
         val = creds.get(key_in_yaml)                            
@@ -151,7 +151,7 @@ def call_tool_dict(call) -> str :
     name = call["function"]["name"]
     raw = call["function"]["arguments"] or "{}"
     try:
-          args = json.loads(raw)                
+          args = json.loads(raw)
     except json.JSONDecodeError as e:
           return f"Error: invalid JSON for '{name}': {e}"
     return dispatch_tool(name, args)
@@ -173,11 +173,15 @@ def _ask_user(name, risk):
     ans = input(f"允许执行 {name}? (y/N)").strip().lower()
     return {"decision":"allow" if ans=="y" else "deny",
             "risk":risk,"reason":"用户"+("同意" if ans=="y" else "拒绝")}
+PERMISSION_MODE = "manual"
+
 def _check_permission(name,args):
-    risk = classify(name, args)         
+    if PERMISSION_MODE in ("yolo", "auto"):
+        return {"decision":"allow","risk":"low","reason":f"{PERMISSION_MODE.upper()} 模式放行"}
+    risk = classify(name, args)
     if risk == "low":  return {"decision":"allow","risk":risk,"reason":"低风险放行"}
     if risk == "high": return {"decision":"deny", "risk":risk,"reason":"高危拦截"}
-    return _ask_user(name, risk)  
+    return _ask_user(name, risk)
 def dispatch_tool(name,args):
     """执行工具：先解析凭证再调用 handler"""
     handler = TOOL_HANDLERS.get(name)
@@ -193,7 +197,9 @@ def dispatch_tool(name,args):
         cred_value = resolve_credential(cred_name)
         if cred_value:
             args["_credential"] = cred_value
-    if name == "run_bash":
+    if PERMISSION_MODE in ("yolo", "auto"):
+        pass  # YOLO/Auto 模式跳过权限检查（AI 审核已处理）
+    elif name == "run_bash":
         risk = classify(name, args)
         if risk == "high":
             return f"权限拒绝：高危拦截"
