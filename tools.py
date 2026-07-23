@@ -198,7 +198,7 @@ def dispatch_tool(name,args):
         if cred_value:
             args["_credential"] = cred_value
     if PERMISSION_MODE in ("yolo", "auto"):
-        pass  # YOLO/Auto 模式跳过权限检查（AI 审核已处理）
+        pass
     elif name == "run_bash":
         risk = classify(name, args)
         if risk == "high":

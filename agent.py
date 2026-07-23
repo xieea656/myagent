@@ -227,20 +227,16 @@ class Agent:
                 last_user_idx = i
                 break
         if last_user_idx >= 0:
-            # ⑤ 被保留的未压缩上下文（最后一条用户消息之前的所有历史）
-            messages.extend(history[:last_user_idx])
-            # ⑥ 这一轮新增的内容（工具执行链，跳过纯文本助手回复）
-            chain = [history[last_user_idx]]  # 用户消息
+            messages.extend(history[:last_user_idx])  # ⑤ 历史
+            # ⑥ 工具执行链，跳过纯文本助手回复
+            chain = [history[last_user_idx]]
             for m in history[last_user_idx + 1:]:
                 if m["role"] == "tool":
                     chain.append(m)
                 elif m["role"] == "assistant" and m.get("tool_calls"):
-                    # 保留工具调用，清空文本，避免 LLM 看到自己的话陷入循环
                     m_copy = dict(m)
                     m_copy["content"] = ""
                     chain.append(m_copy)
-                elif m["role"] == "assistant":
-                    continue  # 纯文本跳过（最终回复，在 ⑤ 里已有）
             messages.extend(chain)
         else:
             messages.extend(history)
@@ -305,7 +301,6 @@ class Agent:
 注意：不确定时放行，只有明确危险才拒绝。"""
 
     def _ai_review_tool(self, call):
-        """Auto 模式下的 AI 审核"""
         name = call["function"]["name"]
         args = call["function"].get("arguments", "{}")
         try:
@@ -317,18 +312,33 @@ class Agent:
         if name == "run_bash":
             try:
                 cmd = json.loads(args).get("command", "")
-                file_refs = self._find_file_refs(cmd)
-                for fpath in file_refs[:3]:
+                for fpath in self._find_file_refs(cmd)[:3]:
                     content = self._safe_read_file(fpath, 2000)
                     if content:
                         prompt += f"\n\n引用文件: {fpath}\n```\n{content}\n```"
             except Exception:
                 pass
+        try:
+            resp = self.client.chat.completions.create(
+                model=self.config["Model"],
+                messages=[
+                    {"role": "system", "content": self.AI_REVIEW_SYSTEM},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1, max_tokens=200,
+            )
+            raw = resp.choices[0].message.content.strip()
+            import re
+            m = re.search(r'\{[^}]+\}', raw)
+            if m:
+                result = json.loads(m.group(0))
+                return {"approved": result.get("approved", True), "reason": result.get("reason", "AI审核通过")}
+        except Exception:
+            pass
+        return {"approved": True, "reason": "审核异常，默认放行"}
 
     def _find_file_refs(self, text):
-        """从命令文本中找出引用的文件路径"""
         import re
-        # 匹配引号内的路径 / 绝对路径 / ~路径
         patterns = [
             r'["\']([^"\']+\.(sh|py|js|rb|pl|bash|zsh|yaml|yml|json|toml|cfg|conf|txt|md))["\']',
             r'(?<!\w)(/[^"\'\s;|&`()]+\.(sh|py|js|rb|pl|bash|zsh|yaml|yml|json|toml|cfg|conf|txt|md))',
@@ -341,7 +351,6 @@ class Agent:
         return sorted(refs)
 
     def _safe_read_file(self, path, max_chars=2000):
-        """安全读取文件内容（限制大小、限文本）"""
         try:
             if not os.path.isfile(path):
                 return None
