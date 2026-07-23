@@ -15,7 +15,8 @@ Base_URL = provider["base_url"]
 Model    = provider["default_model"]
 
 def get_config():
-    return{"API_KEY": API_KEY, "Base_URL": Base_URL, "Model": Model,"provider_name": default,"context_window": provider["context_window"]}
+    return{"API_KEY": API_KEY, "Base_URL": Base_URL, "Model": Model,"provider_name": default,"context_window": provider["context_window"],
+           "capabilities": provider.get("capabilities", ["chat"]), "vision_model": provider.get("vision_model")}
 def list_providers():
     with open(".xlink/config.yaml", "r", encoding="utf-8") as f:
         return yaml.safe_load(f)["providers"]
@@ -34,6 +35,8 @@ def switch_provider(name):
           "Model": info["default_model"],
           "provider_name": name,
           "context_window": info["context_window"],
+          "capabilities": info.get("capabilities", ["chat"]),
+          "vision_model": info.get("vision_model"),
       }
 def switch_model(model_name, current_config):
     new = dict(current_config)

@@ -17,7 +17,7 @@ client = OpenAI(api_key=config["API_KEY"], base_url=config["Base_URL"])
 COMMAND_DESCRIPTIONS = {
         "exit":    "退出程序",
         "persona": "人格管理 (list/switch/current)",
-        "debug":   "调试工具 (context)",
+        "debug":   "调试工具 (context / build / compress)",
         "help":    "显示此帮助",
         "status":  "显示当前会话状态",
         "model":   "切换模型 (list/<name>)",
@@ -91,7 +91,7 @@ def handle_debug_command(parts):
     action = parts[1] if len(parts) > 1 else None
     if action == None:
         if len(parts) == 1:
-            console.print("使用context查看上次LLM发送")
+            console.print("使用context查看上次LLM发送，build查看构建消息，compress查看压缩内容")
     elif parts[1] == "context":
           if agent.last_messages is None:
               console.print("没有上次的消息记录。")
@@ -103,6 +103,33 @@ def handle_debug_command(parts):
                 tokens = len(str(msg["content"])) // 4
                 console.print(f"[{i}] {role}: {tokens}t | {preview}...")
             console.print(f"总计: {sum(len(str(m['content']))//4 for m in agent.last_messages)} tokens")
+    elif parts[1] == "build":
+        msgs = agent._build_messages()
+        if not msgs:
+            console.print("没有构建消息")
+            return
+        zones = ["① system", "② persona", "③ memory", "④ wm", "⑤ ts", "⑥ history", "⑦ plan", "⑧ recent", "⑨ last", "⑩ instructions", "⑪ tools"]
+        z = 0
+        for i, msg in enumerate(msgs):
+            role = msg["role"]
+            preview = (str(msg.get("content", "")) or "(空)")[:60]
+            tokens = len(str(msg.get("content", ""))) // 4
+            if role == "system" and z < len(zones):
+                console.print(f"[{i}] {zones[z]}: {tokens}t | {preview}")
+                z += 1
+            elif role == "system":
+                console.print(f"[{i}] system: {tokens}t | {preview}")
+            else:
+                console.print(f"[{i}] {role}: {tokens}t | {preview}")
+        console.print(f"总计: {sum(len(str(m.get('content','')))//4 for m in msgs)} tokens, {len(msgs)} 条消息")
+    elif parts[1] == "compress":
+        if not agent.compressed:
+            console.print("暂无压缩内容")
+            return
+        console.print(f"共 {len(agent.compressed)} 段压缩:")
+        for i, ep in enumerate(agent.compressed):
+            preview = ep[:200].replace("\n", " ")
+            console.print(f"  [{i+1}] {preview}...")
 def handle_help_command():
     for cmd_name, desc in COMMAND_DESCRIPTIONS.items():
         console.print(f"  /{cmd_name}  {desc}")    
@@ -148,9 +175,9 @@ def handle_clear_command():
     
 def handle_resume_command(parts):
     if len(parts) < 2:
-        for fname in os.listdir("sessions"):
+        for fname in os.listdir(".xlink/sessions"):
             if fname.endswith(".jsonl"):
-                summary = first_user_msg(f"sessions/{fname}")
+                summary = first_user_msg(f".xlink/sessions/{fname}")
                 console.print(f"- {fname[:-6]} | {summary}")
         return
     session_name = parts[1]

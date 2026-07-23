@@ -1,7 +1,7 @@
 from config import get_config
 from openai import OpenAI
-from system_prompt import SYSTEM_PROMPT ,PLAN_PROMPT ,COMPRESS_SYSTEM,COMPRESS_PROMPT
-import datetime, os, platform , json ,tiktoken
+from system_prompt import SYSTEM_PROMPT ,PLAN_PROMPT ,COMPRESS_SYSTEM,COMPRESS_PROMPT,AI_REVIEW_SYSTEM,OCR_INJECT_PROMPT
+import datetime, os, platform , json ,tiktoken, base64, re
 from tools import TOOL_SPECS, call_tool_dict,LOW_TOOL_SPECS ,TOOL_HANDLERS
 import tools as tools_mod
 from log import log_tool_call, l2_summary, read_line
@@ -36,6 +36,8 @@ class Agent:
         self.memory_index_text = ""
         self.memory_dir = ".xlink/memory/"
         self.permission_mode = "auto"
+        self.pending_media = []
+        self.media_cache = {}
         self.max_iter = MAX_ITER
         self.compress_reserve_rounds = COMPRESS_RESERVE_ROUNDS
         self.compress_trigger_ratio = COMPRESS_TRIGGER_RATIO
@@ -43,9 +45,24 @@ class Agent:
         self.wm_max_entries = WM_MAX_ENTRIES
         self.ts_max_entries = TS_MAX_ENTRIES
     def chat(self, cin):
-        user_msg = AgentMessage(role="user", content=cin)
-        self.history.append(user_msg)
-        self._append_jsonl(user_msg)
+        media = self._detect_media_in_text(cin)
+        if media:
+            if "vision" not in self.config.get("capabilities", ["chat"]):
+                for m in media:
+                    desc = self._describe_image(m["b64"], m["mime"])
+                    cin += "\n\n" + OCR_INJECT_PROMPT.format(filename=os.path.basename(m["path"]), text=desc)
+                user_msg = AgentMessage(role="user", content=cin)
+                self.history.append(user_msg)
+                self._append_jsonl(user_msg)
+            else:
+                self.pending_media = media
+                user_msg = AgentMessage(role="user", content=cin)
+                self.history.append(user_msg)
+                self._append_jsonl(user_msg)
+        else:
+            user_msg = AgentMessage(role="user", content=cin)
+            self.history.append(user_msg)
+            self._append_jsonl(user_msg)
         last_content = ""
         for step in range(self.max_iter):
             messages = self._build_messages()
@@ -109,6 +126,23 @@ class Agent:
                         self.events.emit("tool_result", name=call["function"]["name"], status="error", result=result)
                         continue
                 result = call_tool_dict(call)
+                if call["function"]["name"] == "read_file" and result.startswith("[media:"):
+                    try:
+                        args = json.loads(call["function"]["arguments"])
+                        img_path = os.path.realpath(os.path.expanduser(args.get("path", "")))
+                        if os.path.isfile(img_path):
+                            with open(img_path, "rb") as f:
+                                raw = f.read()
+                            ext = os.path.splitext(img_path)[1].lower().lstrip(".")
+                            mime = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif", "bmp": "image/bmp", "webp": "image/webp"}.get(ext, "image/png")
+                            b64 = base64.b64encode(raw).decode()
+                            if "vision" in self.config.get("capabilities", ["chat"]):
+                                self.media_cache[call["id"]] = {"b64": b64, "mime": mime, "name": os.path.basename(img_path)}
+                            else:
+                                desc = self._describe_image(b64, mime)
+                                result = OCR_INJECT_PROMPT.format(filename=os.path.basename(img_path), text=desc)
+                    except Exception:
+                        pass
                 status = "error" if result.startswith("Error:") else "success"
                 self.events.emit("tool_result", name=call["function"]["name"], status=status, result=result)
                 if status == "error":
@@ -137,12 +171,15 @@ class Agent:
         self.events.emit("max_iter", max_iter=25)
         return last_content
     def estimate_tokens(self, messages):
-        """计算token数"""
         total = 0
         for m in messages:
             content = m.content if hasattr(m, "content") else m.get("content", "")
-            total += len(_enc.encode(content))
-            total += 4   
+            if isinstance(content, list):
+                text = " ".join(p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text")
+                total += len(_enc.encode(text))
+            else:
+                total += len(_enc.encode(content))
+            total += 4
         return total
     def get_env_info(self):
         """获取环境信息"""
@@ -150,6 +187,43 @@ class Agent:
         cwd = os.getcwd()
         os_name = f"{platform.system()} {platform.release()}"
         return f"当前时间: {now}\n工作目录: {cwd}\n操作系统: {os_name}"
+    def _detect_media_in_text(self, text):
+        exts = r"\.(png|jpg|jpeg|gif|bmp|webp)"
+        refs = set()
+        for m in re.finditer(rf'["\']?([^"\';\s]+{exts})["\']?', text, re.I):
+            path = os.path.expanduser(m.group(1))
+            normalized = path.replace("\\", "/")
+            if os.path.isfile(normalized):
+                refs.add(normalized)
+        result = []
+        mime_map = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif", "bmp": "image/bmp", "webp": "image/webp"}
+        for path in refs:
+            with open(path, "rb") as f:
+                raw = f.read()
+            ext = os.path.splitext(path)[1].lower().lstrip(".")
+            result.append({"path": path, "b64": base64.b64encode(raw).decode(), "mime": mime_map.get(ext, "image/png")})
+        return result
+    def _describe_image(self, b64, mime):
+        import tempfile, subprocess
+        try:
+            raw = base64.b64decode(b64)
+            ext = {"image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif", "image/bmp": ".bmp", "image/webp": ".webp"}.get(mime, ".png")
+            with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as f:
+                f.write(raw)
+                tmp = f.name
+            out_base = os.path.splitext(tmp)[0]
+            subprocess.run(["tesseract", tmp, out_base, "-l", "chi_sim+eng", "--psm", "3"], capture_output=True, timeout=30)
+            out_path = out_base + ".txt"
+            if os.path.exists(out_path):
+                with open(out_path, encoding="utf-8") as f:
+                    text = f.read().strip()
+                os.unlink(out_path)
+            else:
+                text = ""
+            os.unlink(tmp)
+            return text or "[图片中未识别到文字]"
+        except Exception as e:
+            return f"[OCR 识别失败: {e}]"
     def new_session(self):
         self._new_session_file()
         self.memory_index.set_session(self.session_file)
@@ -159,6 +233,8 @@ class Agent:
         self.plan_text = None
         self.protected_ids = set()
         self.compressed = []
+        self.pending_media = []
+        self.media_cache = {}
         self.memory_index_text = self._load_memory_index()
 
     def _new_session_file(self):
@@ -172,6 +248,8 @@ class Agent:
         with open(path, "r", encoding="utf-8") as f:
             self.history = [AgentMessage.from_dict(json.loads(line)) for line in f if line.strip()]
             self.session_file = path
+        self.pending_media = []
+        self.media_cache = {}
     def _stream_completion(self,messages,tools=None):
         """构造 assistant 消息"""
         kwargs = dict(model = self.config["Model"],messages=messages,stream=True)
@@ -230,8 +308,21 @@ class Agent:
             messages.extend(history[:last_user_idx])  # ⑤ 历史
             # ⑥ 工具执行链，跳过纯文本助手回复
             chain = [history[last_user_idx]]
+            if self.pending_media and "vision" in self.config.get("capabilities", ["chat"]):
+                um = chain[0]
+                parts = [{"type": "text", "text": um["content"]}]
+                for pm in self.pending_media:
+                    parts.append({"type": "image_url", "image_url": {"url": f"data:{pm['mime']};base64,{pm['b64']}"}})
+                um["content"] = parts
+                self.pending_media = []
             for m in history[last_user_idx + 1:]:
                 if m["role"] == "tool":
+                    if self.media_cache and m.get("tool_call_id") in self.media_cache and "vision" in self.config.get("capabilities", ["chat"]):
+                        info = self.media_cache.pop(m["tool_call_id"])
+                        m["content"] = [
+                            {"type": "text", "text": f"[图片: {info['name']}]"},
+                            {"type": "image_url", "image_url": {"url": f"data:{info['mime']};base64,{info['b64']}"}}
+                        ]
                     chain.append(m)
                 elif m["role"] == "assistant" and m.get("tool_calls"):
                     m_copy = dict(m)
@@ -286,20 +377,6 @@ class Agent:
                 parts.append(f"[{msg.role}]\n{msg.content}")
         return "\n\n".join(parts)
 
-    AI_REVIEW_SYSTEM = """你是一个严格但公正的AI安全审核员。你的任务只有一个：判断工具调用是否合理。
-
-审核规则：
-- 只读操作（read_file, list_files, search_files, read_log_line, list_memories, read_memory等）→ 批准
-- 写操作（write_file, edit_file, run_bash等）→ 看内容是否合理
-- 危险操作（rm -rf /, dd, chmod -R 777等）→ 拒绝
-- 搜索操作（search_web, search_files）→ 批准
-- 内存操作（remember_memory, forget_memory, search_memories）→ 批准
-
-输出格式（JSON，不要加其他内容）：
-{"approved": true/false, "reason": "简短理由"}
-
-注意：不确定时放行，只有明确危险才拒绝。"""
-
     def _ai_review_tool(self, call):
         name = call["function"]["name"]
         args = call["function"].get("arguments", "{}")
@@ -322,7 +399,7 @@ class Agent:
             resp = self.client.chat.completions.create(
                 model=self.config["Model"],
                 messages=[
-                    {"role": "system", "content": self.AI_REVIEW_SYSTEM},
+                    {"role": "system", "content": AI_REVIEW_SYSTEM},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.1, max_tokens=200,
@@ -364,25 +441,6 @@ class Agent:
             return text
         except Exception:
             return None
-        try:
-            resp = self.client.chat.completions.create(
-                model=self.config["Model"],
-                messages=[
-                    {"role": "system", "content": self.AI_REVIEW_SYSTEM},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.1,
-                max_tokens=200,
-            )
-            raw = resp.choices[0].message.content.strip()
-            import re
-            m = re.search(r'\{[^}]+\}', raw)
-            if m:
-                result = json.loads(m.group(0))
-                return {"approved": result.get("approved", True), "reason": result.get("reason", "AI审核通过")}
-        except Exception:
-            pass
-        return {"approved": True, "reason": "审核异常，默认放行"}
 
     def _compress(self):
         total = self.estimate_tokens(self.history) + self.estimate_tokens(self.compressed)
