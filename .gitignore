@@ -17,3 +17,4 @@ test_features.py
 .xlink/.env
 
 .xlink/compressed/
+docs/
