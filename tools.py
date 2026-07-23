@@ -4,7 +4,8 @@ import os , json , subprocess , requests ,re ,datetime
 from zoneinfo import ZoneInfo, available_timezones
 from config import resolve_credential, load_all_credentials
 from log import read_line
-MAX_OUTPUT_CHARS = 10000
+MAX_OUTPUT_CHARS = 10000  # AI 上下文截断（agent.py 中在日志后执行）
+SAFETY_LIMIT = 100000     # 进程安全上限（防止内存爆炸）
 BASH_TIMEOUT = 30
 console = Console()
 def read_file(path: str, max_chars: int = MAX_OUTPUT_CHARS) -> str:
@@ -44,7 +45,7 @@ def read_file(path: str, max_chars: int = MAX_OUTPUT_CHARS) -> str:
         text = raw.decode("latin-1")
     except Exception as e:
         return f"Error:读取文件 '{path}' 时发生错误: {e} 未知的编码"
-    if len(text) > max_chars: text = text[:max_chars] + f"\n\n[truncated - 显示了 {max_chars} / 共 {len(text)} 字符]"
+    if len(text) > SAFETY_LIMIT: text = text[:SAFETY_LIMIT] + f"\n\n[truncated at safety limit - 显示了 {SAFETY_LIMIT} / 共 {len(text)} 字符]"
     return text
 def run_bash(command: str, timeout: int = BASH_TIMEOUT, max_chars: int = MAX_OUTPUT_CHARS) -> str:
     """bash工具"""
@@ -78,8 +79,8 @@ def run_bash(command: str, timeout: int = BASH_TIMEOUT, max_chars: int = MAX_OUT
         output += f"\n[stderr]\n{result.stderr}"
     if not output.strip():
         output = "(无输出)"
-    if len(output) > max_chars:
-        output = output[:max_chars] + f"\n\n[truncated - showed {max_chars} of {len(output)} chars]"
+    if len(output) > SAFETY_LIMIT:
+        output = output[:SAFETY_LIMIT] + f"\n\n[truncated at safety limit - showed {SAFETY_LIMIT} of {len(output)} chars]"
     for cred_name in used:                                      
         key_in_yaml = cred_name.lower()                         
         val = creds.get(key_in_yaml)                            
@@ -276,8 +277,8 @@ def search_files(pattern: str, path: str = ".", glob: str = None) -> str:
     if result.returncode != 0 and not result.stdout:
         return "(无匹配)"
     output = result.stdout or ""
-    if len(output) > 5000:
-        output = output[:5000] + f"\n\n[truncated - 显示了 5000 / 共 {len(output)} 字符]"
+    if len(output) > SAFETY_LIMIT:
+        output = output[:SAFETY_LIMIT] + f"\n\n[truncated at safety limit - showed {SAFETY_LIMIT} of {len(output)} chars]"
     return output
 
 def list_files(path: str = ".", pattern: str = None) -> str:
@@ -514,6 +515,101 @@ TOOL_SPECS = [
             }
         }
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "recall_history",
+            "description": "搜索历史会话内容，按时间衰减排序。越近的权重越大",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "搜索关键词"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "返回条数（默认5）"
+                    },
+                    "days": {
+                        "type": "integer",
+                        "description": "搜索范围天数（默认30）"
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "remember_memory",
+            "description": "创建或更新一条持久记忆（跨会话保留）。写入后自动更新索引",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "记忆名称，用作文件名，如 user-identity"},
+                    "content": {"type": "string", "description": "记忆内容（markdown 正文）"},
+                    "type": {"type": "string", "enum": ["user", "feedback", "project", "reference"], "description": "记忆类型，默认 reference"},
+                    "description": {"type": "string", "description": "一句话描述，显示在索引中"}
+                },
+                "required": ["name", "content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "forget_memory",
+            "description": "删除一条持久记忆",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "要删除的记忆名称"}
+                },
+                "required": ["name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_memory",
+            "description": "读取一条持久记忆的完整内容",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "记忆名称"}
+                },
+                "required": ["name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_memories",
+            "description": "在所有持久记忆中搜索关键词",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "搜索关键词"}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_memories",
+            "description": "列出所有持久记忆的标题和描述",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
 ]
 
 LOW_TOOL_SPECS = [
@@ -636,6 +732,31 @@ LOW_TOOL_SPECS = [
             }
         }
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_memories",
+            "description": "列出所有持久记忆的标题和描述",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_memory",
+            "description": "读取一条持久记忆的完整内容",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "记忆名称"}
+                },
+                "required": ["name"]
+            }
+        }
+    },
 ]
 
 TOOL_HANDLERS = {
@@ -649,4 +770,10 @@ TOOL_HANDLERS = {
     "edit_file": edit_file,
     "search_files": search_files,
     "list_files": list_files,
+    "recall_history": None,
+    "remember_memory": None,
+    "forget_memory": None,
+    "read_memory": None,
+    "search_memories": None,
+    "list_memories": None,
 }

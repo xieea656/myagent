@@ -2,9 +2,9 @@ import os ,yaml
 from dotenv import load_dotenv
 from rich.console import Console
 _NON_CHAT = ("asr", "tts", "voice", "embedding", "whisper")
-load_dotenv()
+load_dotenv(".xlink/.env")
 console = Console()
-with open("config.yaml", "r", encoding="utf-8") as f:
+with open(".xlink/config.yaml", "r", encoding="utf-8") as f:
      yaml_config = yaml.safe_load(f)
 default = yaml_config["default_provider"]          
 provider = yaml_config["providers"][default] 
@@ -17,10 +17,10 @@ Model    = provider["default_model"]
 def get_config():
     return{"API_KEY": API_KEY, "Base_URL": Base_URL, "Model": Model,"provider_name": default,"context_window": provider["context_window"]}
 def list_providers():
-    with open("config.yaml", "r", encoding="utf-8") as f:
+    with open(".xlink/config.yaml", "r", encoding="utf-8") as f:
         return yaml.safe_load(f)["providers"]
 def switch_provider(name):
-    with open("config.yaml", "r", encoding="utf-8") as f:
+    with open(".xlink/config.yaml", "r", encoding="utf-8") as f:
         providers = yaml.safe_load(f)["providers"]
     if name not in providers:
           raise KeyError(name)
@@ -53,7 +53,7 @@ def list_available_models(client):
     return sorted(ids)
 def resolve_credential(name):
     """从 credentials.yaml 按名查找凭证，返回 value"""
-    path = os.path.expanduser("~/.config/myagent/credentials.yaml")
+    path = os.path.expanduser("~/.config/xlink/credentials.yaml")
     if os.path.exists(path):
         with open(path, "r") as f:
             creds = yaml.safe_load(f) or {}
@@ -66,7 +66,7 @@ def resolve_credential(name):
     return os.getenv(f"{name.upper()}_API_KEY")
 def load_all_credentials():
     """返回 {name: value} 字典，供 run_bash 环境变量注入用"""
-    path = os.path.expanduser("~/.config/myagent/credentials.yaml")
+    path = os.path.expanduser("~/.config/xlink/credentials.yaml")
     if not os.path.exists(path):
         return {}
     with open(path, "r") as f:
@@ -84,7 +84,7 @@ def load_all_credentials():
 
 def add_credential(name, value):
     """追加一个凭证"""
-    path = os.path.expanduser("~/.config/myagent/credentials.yaml")
+    path = os.path.expanduser("~/.config/xlink/credentials.yaml")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     creds = {}
     if os.path.exists(path):
@@ -96,7 +96,7 @@ def add_credential(name, value):
 
 def remove_credential(name):
     """删除一个凭证"""
-    path = os.path.expanduser("~/.config/myagent/credentials.yaml")
+    path = os.path.expanduser("~/.config/xlink/credentials.yaml")
     if not os.path.exists(path):
         return False
     with open(path, "r") as f:
@@ -110,7 +110,7 @@ def remove_credential(name):
 
 def ensure_credentials():
     """检测 credentials.yaml，不存在则交互式初始化"""
-    path = os.path.expanduser("~/.config/myagent/credentials.yaml")
+    path = os.path.expanduser("~/.config/xlink/credentials.yaml")
     if os.path.exists(path):
           return
     console.print("检测到首次运行，请配置凭证（留空=跳过/匿名）")

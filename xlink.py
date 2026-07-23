@@ -27,7 +27,12 @@ COMMAND_DESCRIPTIONS = {
         "provider" : "切换提供商 (list/<name>)",
         "notools": "切换工具开关 (on/off)",
         "plan" : "开启计划模式",
-        "credential" : "添加凭证"
+        "credential": "添加凭证",
+        "protect": "保护消息不被压缩 (list/clear/<N>)",
+        "history": "查看历史消息 (/history <N>)",
+        "search": "搜索历史消息 (/search <关键词>)",
+        "memory": "查看持久记忆 (list)",
+        "config": "查看/设置配置 (list / set <key> <value>)"
 }
 def handle_command(cmd):
     """解析命令并执行相应操作"""
@@ -47,6 +52,11 @@ def handle_command(cmd):
         "notools": lambda: handle_notools_command(parts),
         "plan" : lambda:handle_plan_command(), 
         "credential": lambda: handle_credential_command(parts),
+        "protect": lambda: handle_protect_command(parts),
+        "history": lambda: handle_history_command(parts),
+        "search": lambda: handle_search_command(parts),
+        "memory": lambda: handle_memory_command(parts),
+        "config": lambda: handle_config_command(parts),
     }
     if action in command_handlers:
         return command_handlers[action]()
@@ -202,6 +212,149 @@ def handle_credential_command(parts):
             console.print(f"凭证 {parts[2]} 已删除")
         else:
             console.print(f"凭证 {parts[2]} 不存在")
+
+def handle_protect_command(parts):
+    role_label = {"user": "用户", "assistant": "回复", "tool": "工具", "compressed": "压缩"}
+    if len(parts) < 2:
+        n = min(10, len(agent.history))
+        for i in range(-n, 0):
+            msg = agent.history[i]
+            label = role_label.get(msg.role, msg.role)
+            preview = msg.content[:300].replace("\n", " ")
+            console.print(f"  [{n + i + 1}] [{label}] {preview}")
+        console.print("\n用法: /protect <编号>  |  /protect list  |  /protect clear")
+        return
+    sub = parts[1]
+    if sub == "list":
+        if not agent.protected_ids:
+            console.print("暂无保护的消息")
+            return
+        console.print("已保护的消息:")
+        for i, msg in enumerate(agent.history):
+            if msg.id in agent.protected_ids:
+                label = role_label.get(msg.role, msg.role)
+                preview = msg.content[:300].replace("\n", " ")
+                console.print(f"  [{i+1}] [{label}] {preview}")
+    elif sub == "clear":
+        n = len(agent.protected_ids)
+        agent.protected_ids.clear()
+        console.print(f"已清除 {n} 条保护标记")
+    else:
+        try:
+            idx = int(sub) - 1
+            if idx < 0 or idx >= len(agent.history):
+                console.print(f"错误: 编号 {sub} 超出范围 (1-{len(agent.history)})")
+                return
+            msg = agent.history[idx]
+            agent.protected_ids.add(msg.id)
+            label = role_label.get(msg.role, msg.role)
+            preview = msg.content[:300].replace("\n", " ")
+            console.print(f"已保护消息 #{sub}: [{label}] {preview}")
+        except ValueError:
+            console.print(f"错误: 未知参数 '{sub}'")
+
+def handle_history_command(parts):
+    role_label = {"user": "用户", "assistant": "回复", "tool": "工具", "compressed": "压缩"}
+    n = 10
+    if len(parts) > 1:
+        try:
+            n = int(parts[1])
+        except ValueError:
+            console.print("用法: /history <N>")
+            return
+    try:
+        with open(agent.session_file, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        tail = lines[-n:] if n < len(lines) else lines
+        for line in tail:
+            m = json.loads(line)
+            label = role_label.get(m.get("role", "?"), m.get("role", "?"))
+            content = m.get("content") or ""
+            if m.get("tool_call_id"):
+                preview = f"[{m['tool_call_id']}] {content[:200]}"
+            else:
+                preview = content[:200]
+            preview = preview.replace("\n", " ")
+            console.print(f"  [{label}] {preview}")
+    except FileNotFoundError:
+        console.print("没有当前会话文件")
+
+def handle_search_command(parts):
+    role_label = {"user": "用户", "assistant": "回复", "tool": "工具", "compressed": "压缩"}
+    if len(parts) < 2:
+        console.print("用法: /search <关键词>")
+        return
+    keyword = " ".join(parts[1:])
+    try:
+        with open(agent.session_file, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        matches = []
+        for i, line in enumerate(lines):
+            if keyword in line:
+                m = json.loads(line)
+                label = role_label.get(m.get("role", "?"), m.get("role", "?"))
+                content = m.get("content") or ""
+                preview = content[:200].replace("\n", " ")
+                matches.append((i+1, label, preview))
+        if not matches:
+            console.print(f"未找到包含 '{keyword}' 的消息")
+            return
+        console.print(f"找到 {len(matches)} 条匹配:")
+        for ln, label, preview in matches[-20:]:
+            console.print(f"  [{ln}] [{label}] {preview}")
+    except FileNotFoundError:
+        console.print("没有当前会话文件")
+
+def handle_memory_command(parts):
+    if len(parts) < 2 or parts[1] != "list":
+        console.print("用法: /memory list")
+        return
+    agent._sync_memory_index()
+    if agent.memory_index_text:
+        console.print("=== 持久记忆 ===")
+        console.print(agent.memory_index_text)
+    else:
+        console.print("暂无持久记忆")
+
+def handle_config_command(parts):
+    if len(parts) < 2 or parts[1] == "list":
+        console.print("当前配置:")
+        console.print(f"  max_iter                = {agent.max_iter}")
+        console.print(f"  compress_reserve_rounds = {agent.compress_reserve_rounds}")
+        console.print(f"  compress_trigger_ratio  = {agent.compress_trigger_ratio}")
+        console.print(f"  wm_max_tokens           = {agent.wm_max_tokens}")
+        console.print(f"  wm_max_entries          = {agent.wm_max_entries}")
+        console.print(f"  ts_max_entries          = {agent.ts_max_entries}")
+        console.print(f"  model                   = {agent.config.get('Model', '?')}")
+        console.print(f"  provider                = {agent.config.get('provider_name', '?')}")
+        console.print(f"  context_window          = {agent.config.get('context_window', '?')}")
+        console.print(f"  tools_enabled           = {agent.tools_enabled}")
+        return
+    if parts[1] == "set" and len(parts) >= 4:
+        key = parts[2]
+        val = parts[3]
+        try:
+            if key == "max_iter":
+                agent.max_iter = int(val)
+            elif key == "compress_reserve_rounds":
+                agent.compress_reserve_rounds = int(val)
+            elif key == "compress_trigger_ratio":
+                agent.compress_trigger_ratio = float(val)
+            elif key == "wm_max_tokens":
+                agent.wm_max_tokens = int(val)
+            elif key == "wm_max_entries":
+                agent.wm_max_entries = int(val)
+            elif key == "ts_max_entries":
+                agent.ts_max_entries = int(val)
+            else:
+                console.print(f"未知配置项: {key}")
+                return
+            console.print(f"已设置 {key} = {val}")
+        except ValueError:
+            console.print(f"错误: {key} 的值 '{val}' 格式不正确")
+        return
+    console.print("用法: /config list | /config set <key> <value>")
+
 def toolbar():
     used = agent.estimate_tokens(agent.history)
     model = agent.config.get("Model", "?")

@@ -8,3 +8,4 @@ sessions/
 *.swp
 *.swo
 .DS_Store
+test_features.py
