@@ -314,6 +314,47 @@ class Agent:
         except Exception:
             context = ""
         prompt = f"工具: {name}\n参数: {args}\n\n最近上下文:\n{context}"
+        if name == "run_bash":
+            try:
+                cmd = json.loads(args).get("command", "")
+                file_refs = self._find_file_refs(cmd)
+                for fpath in file_refs[:3]:
+                    content = self._safe_read_file(fpath, 2000)
+                    if content:
+                        prompt += f"\n\n引用文件: {fpath}\n```\n{content}\n```"
+            except Exception:
+                pass
+
+    def _find_file_refs(self, text):
+        """从命令文本中找出引用的文件路径"""
+        import re
+        # 匹配引号内的路径 / 绝对路径 / ~路径
+        patterns = [
+            r'["\']([^"\']+\.(sh|py|js|rb|pl|bash|zsh|yaml|yml|json|toml|cfg|conf|txt|md))["\']',
+            r'(?<!\w)(/[^"\'\s;|&`()]+\.(sh|py|js|rb|pl|bash|zsh|yaml|yml|json|toml|cfg|conf|txt|md))',
+            r'(?<!\w)(~/[^"\'\s;|&`()]+\.(sh|py|js|rb|pl|bash|zsh|yaml|yml|json|toml|cfg|conf|txt|md))',
+        ]
+        refs = set()
+        for pat in patterns:
+            for m in re.finditer(pat, text):
+                refs.add(os.path.expanduser(m.group(1)))
+        return sorted(refs)
+
+    def _safe_read_file(self, path, max_chars=2000):
+        """安全读取文件内容（限制大小、限文本）"""
+        try:
+            if not os.path.isfile(path):
+                return None
+            with open(path, "rb") as f:
+                raw = f.read(max_chars + 100)
+            if b"\x00" in raw:
+                return None
+            text = raw.decode("utf-8", errors="replace")[:max_chars]
+            if len(raw) > max_chars:
+                text += "\n...[截断]"
+            return text
+        except Exception:
+            return None
         try:
             resp = self.client.chat.completions.create(
                 model=self.config["Model"],
