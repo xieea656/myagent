@@ -1,4 +1,4 @@
-# myagent
+# xlink
 
 CLI AI Agent，支持多模型、工具调用、持久记忆、计划模式。
 
@@ -69,7 +69,7 @@ providers:
 ## 项目结构
 
 ```
-myagent/
+xlink/
 ├── xlink.py              # CLI 入口
 ├── agent.py              # Agent 核心（循环、上下文、工具调度）
 ├── tools.py              # 工具定义
